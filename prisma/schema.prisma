@@ -1,0 +1,398 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mongodb"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id                         String        @id @default(auto()) @map("_id") @db.ObjectId
+  fullName                   String
+  email                      String        @unique
+  password                   String?
+  role                       UserRoleEnum  @default(MEMBER)
+  status                     UserStatus    @default(PENDING)
+  isVerified                 Boolean       @default(false)
+  isProfileComplete          Boolean       @default(false)
+  address                    String?
+  isLoggedIn                 Boolean       @default(false)
+  image                      String?
+  phoneNumber                String?
+  dateOfBirth                String?
+  gender                     String?
+  plateForm                  PlatFormType?
+  fcmToken                   String?
+  fcmTokenEx                 String?
+  stripeCustomerId           String?
+  isVerifiedForPasswordReset Boolean       @default(false)
+  createdAt                  DateTime      @default(now())
+  updatedAt                  DateTime      @updatedAt
+
+  // Relationships
+  review           Review[]
+  faq              Faq[]
+  termAndCondition TermAndCondition[]
+  privacyPolicy    PrivacyPolicy[]
+  notification     Notification[]
+  payment          Payment[]
+  category         Category[]
+  aboutUs          AboutUs[]
+  helpAndSupport   HelpAndSupport[]
+  Reply            Reply[]
+  admin            Admin?
+  favoriteProduct  FavoriteProduct[]
+  foundingTeam     FoundingTeam[]
+  contactUsInfo    ContactUsInfo[]
+
+  @@map("users")
+}
+
+
+model Admin {
+  id           String       @id @default(auto()) @map("_id") @db.ObjectId
+  userId       String       @unique @db.ObjectId
+  role         UserRoleEnum @default(SUPER_ADMIN)
+  isSuperAdmin Boolean      @default(false)
+  systemOwner  Boolean      @default(false)
+  createdAt    DateTime     @default(now())
+  updatedAt    DateTime     @updatedAt
+
+  // Relationships
+  user User @relation(fields: [userId], references: [id])
+
+  @@map("admins")
+}
+
+
+model Category {
+  id        String   @id @default(auto()) @map("_id") @db.ObjectId
+  userId    String   @db.ObjectId
+  name      String   @unique
+  iconUrl   String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Relationships
+  user           User             @relation(fields: [userId], references: [id])
+  deletedProduct DeletedProduct[]
+  // carProductMapping CarProductMapping[]
+
+  @@map("categories")
+}
+
+
+model DeletedProduct {
+  id            String   @id @default(auto()) @map("_id") @db.ObjectId
+  productId     String?  @db.ObjectId
+  sellerId      String   @db.ObjectId
+  categoryId    String?  @db.ObjectId
+  brandId       String?  @db.ObjectId
+  productName   String
+  productImages String[]
+  description   String?
+  price         Float
+  discount      Float    @default(0)
+  deletedAt     DateTime @default(now())
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  // Relationships
+  category   Category?     @relation(fields: [categoryId], references: [id])
+  
+
+  @@map("deleted_products")
+}
+
+model FavoriteProduct {
+  id        String   @id @default(auto()) @map("_id") @db.ObjectId
+  userId    String   @db.ObjectId
+  productId String   @db.ObjectId
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Relationships
+  user    User    @relation(fields: [userId], references: [id])
+
+  @@unique([userId, productId]) // prevent duplicate favorites
+  @@map("favorite_products")
+}
+
+model Notification {
+  id        String   @id @default(auto()) @map("_id") @db.ObjectId
+  userId    String   @db.ObjectId
+  title     String
+  body      String
+  data      String?
+  isRead    Boolean  @default(false)
+  isClicked Boolean  @default(false)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Relationships
+  user User @relation(fields: [userId], references: [id])
+
+  @@map("notifications")
+}
+
+model Payment {
+  id              String        @id @default(auto()) @map("_id") @db.ObjectId
+  userId          String        @db.ObjectId
+  paymentIntentId String?
+  paymentMethodId String?
+  paymentAmount   Float
+  paymentDate     DateTime      @default(now())
+  amountProvider  String
+  invoice         Json?
+  status          PaymentStatus @default(PENDING)
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+
+  user  User    @relation(fields: [userId], references: [id])
+
+
+  @@map("payments")
+}
+
+
+
+model Review {
+  id        String   @id @default(auto()) @map("_id") @db.ObjectId
+  userId    String   @db.ObjectId
+  productId String   @db.ObjectId
+  rating    Int
+  comment   String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Relationships
+  user    User    @relation(fields: [userId], references: [id])
+
+  @@map("reviews")
+}
+
+model PrivacyPolicy {
+  id        String   @id @default(auto()) @map("_id") @db.ObjectId
+  userId    String   @db.ObjectId
+  heading   String?
+  content   String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Relationships
+  user User @relation(fields: [userId], references: [id])
+
+  @@map("privacy_policies")
+}
+
+
+model Faq {
+  id        String   @id @default(auto()) @map("_id") @db.ObjectId
+  userId    String   @db.ObjectId
+  question  String
+  answer    String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Relationships
+  user User @relation(fields: [userId], references: [id])
+
+  @@map("faqs")
+}
+
+
+model AboutUs {
+  id        String   @id @default(auto()) @map("_id") @db.ObjectId
+  userId    String   @db.ObjectId
+  heading   String?
+  content   String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Relationships
+  user User @relation(fields: [userId], references: [id])
+
+  @@map("about_us")
+}
+
+model ContactUsInfo {
+  id          String   @id @default(auto()) @map("_id") @db.ObjectId
+  userId      String   @db.ObjectId
+  email       String
+  phoneNumber String
+  location    String?
+  facebook    String?
+  instagram   String?
+  twitter     String?
+  linkedin    String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  // Relationships
+  user User @relation(fields: [userId], references: [id])
+
+  @@map("contact_us_info")
+}
+
+model HelpAndSupport {
+  id        String   @id @default(auto()) @map("_id") @db.ObjectId
+  userId    String   @db.ObjectId
+  heading   String?
+  content   String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Relationships
+  user User @relation(fields: [userId], references: [id])
+
+  @@map("help_and_support")
+}
+
+model TermAndCondition {
+  id        String   @id @default(auto()) @map("_id") @db.ObjectId
+  userId    String   @db.ObjectId
+  heading   String?
+  content   String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Relationships
+  user User @relation(fields: [userId], references: [id])
+
+  @@map("terms_and_conditions")
+}
+
+model NewsletterSubscriber {
+  id        String   @id @default(auto()) @map("_id") @db.ObjectId
+  email     String   @unique
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("newsletter_subscribers")
+}
+
+model Support {
+  id        String        @id @default(auto()) @map("_id") @db.ObjectId
+  userName  String?
+  userEmail String
+  userPhone String?
+  message   String
+  status    SupportStatus @default(OPEN)
+  createdAt DateTime      @default(now())
+  updatedAt DateTime      @updatedAt
+
+  // Relationships
+
+  reply Reply[]
+
+  @@map("supports")
+}
+
+model Reply {
+  id        String      @id @default(auto()) @map("_id") @db.ObjectId
+  userId    String      @db.ObjectId
+  supportId String?     @db.ObjectId
+  message   String
+  status    ReplyStatus @default(CLOSED)
+  createdAt DateTime    @default(now())
+  updatedAt DateTime    @updatedAt
+
+  // Relationships
+  support Support? @relation(fields: [supportId], references: [id])
+  user    User     @relation(fields: [userId], references: [id])
+
+  @@map("replies")
+}
+
+
+model FoundingTeam {
+  id        String   @id @default(auto()) @map("_id") @db.ObjectId
+  userId    String   @db.ObjectId
+  name      String
+  role      String
+  image     String?
+  linkedin  String?
+  twitter   String?
+  instagram String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Relationships
+  user User @relation(fields: [userId], references: [id])
+
+  @@map("founding_team")
+}
+
+enum UserRoleEnum {
+  ADMIN
+  SUPER_ADMIN
+  TRAINER
+  MEMBER
+}
+
+
+enum OrderStatus {
+  PENDING
+  PROCESSING
+  SHIPPED
+  DELIVERED
+  CANCELLED
+  RETURNED
+}
+
+
+enum ResponseStatus {
+  SUBMITTED // Response submitted
+  AUTO_GRADED // MCQ/TrueFalse graded
+  MANUAL_GRADED // Short answer graded by instructor
+}
+
+
+enum PaymentStatus {
+  PENDING
+  COMPLETED
+  FAILED
+  CASH
+  EXPIRED
+  REFUNDED
+  REQUIRES_CAPTURE
+  CANCELLED
+}
+
+enum PlatFormType {
+  GOOGLE
+  FACEBOOK
+  APPLE
+}
+
+enum ReplyStatus {
+  PENDING
+  IGNORED
+  RESOLVED
+  CLOSED
+}
+
+enum ReplyType {
+  SUPPORT
+  REPORT
+}
+
+enum RoomType {
+  ONE_TO_ONE
+  GROUP
+}
+
+enum SupportStatus {
+  OPEN
+  IN_PROGRESS
+  RESOLVED
+  CLOSED
+}
+
+
+enum UserStatus {
+  ACTIVE
+  PENDING
+  BLOCKED
+}
