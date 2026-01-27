@@ -18,6 +18,25 @@ const registerUser = catchAsync(async (req, res) => {
   });
 });
 
+const trainerRegisterUser = catchAsync(async (req, res) => {
+  const file = req.file;
+  if (!file) {
+    throw new AppError(
+      httpStatus.BAD_REQUEST,
+      'Certification document file is required.',
+    );
+  } 
+  // Upload to DigitalOcean
+  const fileUrl = await uploadFileToS3(file, 'trainer-certification-documents');
+  const result = await UserServices.trainerRegisterUserIntoDB(req.body, fileUrl);
+
+  sendResponse(res, {
+    statusCode: httpStatus.CREATED,
+    message: 'OTP sent via your email successfully',
+    data: result,
+  });
+});
+
 const resendUserVerificationEmail = catchAsync(async (req, res) => {
   const { email } = req.body;
   const result = await UserServices.resendUserVerificationEmail(email);
@@ -31,15 +50,6 @@ const resendUserVerificationEmail = catchAsync(async (req, res) => {
 const getMyProfile = catchAsync(async (req, res) => {
   const user = req.user as any;
 
-  if (user.role === UserRoleEnum.SELLER) {
-    const result = await UserServices.getMyProfileForSellerFromDB(user.id);
-
-    sendResponse(res, {
-      statusCode: httpStatus.OK,
-      message: 'Seller profile retrieved successfully',
-      data: result,
-    });
-  } else {
     const result = await UserServices.getMyProfileFromDB(user.id);
 
     sendResponse(res, {
@@ -47,23 +57,11 @@ const getMyProfile = catchAsync(async (req, res) => {
       message: 'Profile retrieved successfully',
       data: result,
     });
-  }
 });
 
 const updateMyProfile = catchAsync(async (req, res) => {
   const user = req.user as any;
-  if (user.role === UserRoleEnum.SELLER) {
-    const result = await UserServices.updateProfileForSellerIntoDB(
-      user.id,
-      req.body,
-    );
-
-    sendResponse(res, {
-      statusCode: httpStatus.OK,
-      message: 'Seller profile updated successfully',
-      data: result,
-    });
-  } else {
+ 
     const result = await UserServices.updateMyProfileIntoDB(user.id, req.body);
 
     sendResponse(res, {
@@ -71,7 +69,6 @@ const updateMyProfile = catchAsync(async (req, res) => {
       message: 'User profile updated successfully',
       data: result,
     });
-  }
 });
 
 const changePassword = catchAsync(async (req, res) => {
@@ -106,45 +103,6 @@ const resendOtp = catchAsync(async (req, res) => {
   });
 });
 
-const toggleBuyerSeller = catchAsync(async (req, res) => {
-  const user = req.user as any;
-
-  const result = await UserServices.toggleBuyerSellerIntoDB(user.id, user.role);
-
-  sendResponse(res, {
-    statusCode: httpStatus.OK,
-    success: true,
-    message: 'User role switched successfully!',
-    data: result,
-  });
-});
-
-const addSellerInfo = catchAsync(async (req, res) => {
-  const user = req.user as any;
-  const { file, body } = req;
-
-  // if (!file) {
-  //   throw new AppError(httpStatus.BAD_REQUEST, 'Logo file is required.');
-  // }
-
-  // Upload to DigitalOcean
-  let fileUrl;
-  if (file) {
-    fileUrl = await uploadFileToS3(file, 'seller-logos');
-  }
-  const sellerData = {
-    ...body,
-    logo: fileUrl ? fileUrl : undefined,
-  };
-  const result = await UserServices.addSellerInfoIntoDB(user.id, sellerData);
-
-  sendResponse(res, {
-    statusCode: httpStatus.OK,
-    success: true,
-    message: 'Seller information added successfully!',
-    data: result,
-  });
-});
 
 const verifyOtp = catchAsync(async (req, res) => {
   const result = await UserServices.verifyOtpInDB(req.body);
@@ -220,20 +178,6 @@ const updateProfileImage = catchAsync(async (req, res) => {
   // Upload to DigitalOcean
   const fileUrl = await uploadFileToS3(file, 'user-profile-images');
 
-  if (user.role === UserRoleEnum.SELLER) {
-    // Update DB
-    const result = await UserServices.updateProfileImageForSellerIntoDB(
-      user.id,
-      fileUrl,
-    );
-
-    sendResponse(res, {
-      statusCode: httpStatus.OK,
-      message: 'Profile image updated successfully',
-      data: result,
-    });
-  } else {
-    // Update DB
     const result = await UserServices.updateProfileImageIntoDB(
       user.id,
       fileUrl,
@@ -244,18 +188,17 @@ const updateProfileImage = catchAsync(async (req, res) => {
       message: 'Profile image updated successfully',
       data: result,
     });
-  }
+  
 });
 
 export const UserControllers = {
   registerUser,
+  trainerRegisterUser,
   getMyProfile,
   updateMyProfile,
   changePassword,
   verifyOtpForgotPassword,
   forgotPassword,
-  toggleBuyerSeller,
-  addSellerInfo,
   verifyOtp,
   socialLogin,
   updatePassword,

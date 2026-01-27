@@ -17,46 +17,30 @@ const registerUser = z.object({
     password: z.string({
       required_error: 'Password is required!',
     }),
+    role: z.enum(['MEMBER', 'SELLER'], {
+      required_error: 'Role is required!',  
+    }),
   }),
 });
 
-const sellerInfoSchema = z.object({
+
+const trainerRegisterUser = z.object({
   body: z.object({
-    companyName: z
-      .string({
-        required_error: 'Company name is required!',
-      })
-      .optional(),
-    // logo: z
-    //   .string({
-    //     required_error: 'Logo is required!',
-    //   })
-    //   .optional(),
-    companyEmail: z
-      .string({
-        required_error: 'Company email is required!',
-      })
-      .email({
-        message: 'Invalid email format!',
-      })
-      .optional(),
-    contactInfo: z
-      .string({
-        required_error: 'Contact info is required!',
-      })
-      .optional(),
-    address: z
-      .string({
-        required_error: 'Address is required!',
-      })
-      .optional(),
-    payoutInfo: z
-      .string({
-        required_error: 'Payout info is required!',
-      })
-      .optional(),
+    specialtyId: z.string({
+      required_error: 'Specialty ID is required!',
+    }),
+    experienceYears: z.string({
+      required_error: 'Experience years is required!',
+    }),
+    trainerServiceType: z.array(
+      z.string({
+        required_error: 'Service type is required!',
+      }),
+    ),
   }),
 });
+
+
 
 const updateProfileSchema = z.object({
   body: z.object({
@@ -206,13 +190,7 @@ const socialLoginSchema = z.object({
   }),
 });
 
-const switchRoleSchema = z.object({
-  body: z.object({
-    role: z.enum(['BUYER', 'SELLER'], {
-      required_error: 'Role is required!',
-    }),
-  }),
-});
+
 
 const updateAddressSchema = z.object({
   body: z.object({
@@ -242,13 +220,12 @@ const updateAddressSchema = z.object({
 
 export const UserValidations = {
   registerUser,
-  sellerInfoSchema,
   updateProfileSchema,
   updatePasswordSchema,
   forgetPasswordSchema,
   verifyOtpSchema,
   changePasswordSchema,
   socialLoginSchema,
-  switchRoleSchema,
   updateAddressSchema,
+  trainerRegisterUser,
 };

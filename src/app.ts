@@ -50,10 +50,10 @@ app.use(
       'https://ecommerce-website-alpha-olive.vercel.app',
       'https://hatem-dashboard-iota.vercel.app',
       'https://hatem-dashboard.vercel.app',
-      'https://sparedoc.com',
-      'https://www.sparedoc.com',
-      'https://dashboard.sparedoc.com',
-      'https://www.dashboard.sparedoc.com',
+      'https://VitaKinetic.com',
+      'https://www.VitaKinetic.com',
+      'https://dashboard.VitaKinetic.com',
+      'https://www.dashboard.VitaKinetic.com',
     ],
     credentials: true,
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH'],
@@ -126,7 +126,7 @@ app.get('/api/v1/csrf-token',
 
 app.get('/', (req: Request, res: Response) => {
   res.send({
-    Message: 'SpareDoc server is now live. . .',
+    Message: 'VitaKinetic server is now live. . .',
   });
 });
 // Serve static files from 'public' folder

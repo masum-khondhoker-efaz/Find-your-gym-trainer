@@ -27,6 +27,7 @@ const registerUserIntoDB = async (payload: {
   email: string;
   password: string;
   phoneNumber: string;
+  role?: UserRoleEnum;
 }) => {
   // 1. Check if user already exists
   const existingUser = await prisma.user.findUnique({
@@ -44,7 +45,7 @@ const registerUserIntoDB = async (payload: {
         <div style="font-family: Arial, sans-serif; color: #333; line-height: 1.6; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #e0e0e0; border-radius: 10px;">
           <table width="100%" style="border-collapse: collapse;">
             <tr>
-              <td style="background-color: #F56100; padding: 20px; text-align: center; color: #000000; border-radius: 10px 10px 0 0;">
+              <td style="background-color: #8FAF9A; padding: 20px; text-align: center; color: #000000; border-radius: 10px 10px 0 0;">
                 <h2 style="margin: 0; font-size: 24px;">Verify your email</h2>
               </td>
             </tr>
@@ -56,18 +57,32 @@ const registerUserIntoDB = async (payload: {
                   <p style="font-size: 18px;">Your OTP is: <span style="font-weight:bold">${otp}</span><br/> This OTP will expire in 5 minutes.</p>
                 </div>
                 <p style="font-size: 14px; color: #555;">If you did not request this change, please ignore this email.</p>
-                <p style="font-size: 16px; margin-top: 20px;">Thank you,<br>SpareDoc Team</p>
+                <p style="font-size: 16px; margin-top: 20px;">Thank you,<br>VitaKinetic Team</p>
               </td>
             </tr>
             <tr>
               <td style="background-color: #f5f5f5; padding: 15px; text-align: center; font-size: 12px; color: #888; border-radius: 0 0 10px 10px;">
-                <p style="margin: 0;">&copy; ${new Date().getFullYear()} SpareDoc Marketplace. All rights reserved.</p>
+                <p style="margin: 0;">&copy; ${new Date().getFullYear()} VitaKinetic Marketplace. All rights reserved.</p>
               </td>
             </tr>
           </table>
         </div>
         `,
       );
+
+      const hashedPassword = await bcrypt.hash(payload.password, 12);
+      //update existing user info if changed
+      await prisma.user.update({
+        where: { email: payload.email },
+        data: {
+          fullName: payload.fullName,
+          password: hashedPassword,
+          phoneNumber: payload.phoneNumber,
+        },
+      });
+
+
+
       return otpToken;
     }
     throw new AppError(httpStatus.CONFLICT, 'User already exists!');
@@ -90,6 +105,8 @@ const registerUserIntoDB = async (payload: {
           password: hashedPassword,
           phoneNumber: payload.phoneNumber,
           status: UserStatus.PENDING,
+          role: payload.role,
+          isVerified: false,
         },
       });
 
@@ -97,7 +114,10 @@ const registerUserIntoDB = async (payload: {
         throw new AppError(httpStatus.BAD_REQUEST, 'User not created!');
       }
 
-      
+      // await tx.user.update({
+      //   where: { id: createdUser.id },
+      //   data: { isVerified: false },
+      // });
 
       // send OTP email inside transaction so failures roll back DB changes
       await emailSender(
@@ -107,7 +127,7 @@ const registerUserIntoDB = async (payload: {
         <div style="font-family: Arial, sans-serif; color: #333; line-height: 1.6; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #e0e0e0; border-radius: 10px;">
           <table width="100%" style="border-collapse: collapse;">
             <tr>
-              <td style="background-color: #F56100; padding: 20px; text-align: center; color: #000000; border-radius: 10px 10px 0 0;">
+              <td style="background-color: #8FAF9A; padding: 20px; text-align: center; color: #000000; border-radius: 10px 10px 0 0;">
                 <h2 style="margin: 0; font-size: 24px;">Verify your email</h2>
               </td>
             </tr>
@@ -119,12 +139,12 @@ const registerUserIntoDB = async (payload: {
                   <p style="font-size: 18px;">Your OTP is: <span style="font-weight:bold">${otp}</span><br/> This OTP will expire in 5 minutes.</p>
                 </div>
                 <p style="font-size: 14px; color: #555;">If you did not request this change, please ignore this email.</p>
-                <p style="font-size: 16px; margin-top: 20px;">Thank you,<br>SpareDoc Team</p>
+                <p style="font-size: 16px; margin-top: 20px;">Thank you,<br>VitaKinetic Team</p>
               </td>
             </tr>
             <tr>
               <td style="background-color: #f5f5f5; padding: 15px; text-align: center; font-size: 12px; color: #888; border-radius: 0 0 10px 10px;">
-                <p style="margin: 0;">&copy; ${new Date().getFullYear()} SpareDoc Marketplace. All rights reserved.</p>
+                <p style="margin: 0;">&copy; ${new Date().getFullYear()} VitaKinetic Marketplace. All rights reserved.</p>
               </td>
             </tr>
           </table>
@@ -168,7 +188,7 @@ const resendUserVerificationEmail = async (email: string) => {
     `<div style="font-family: Arial, sans-serif; color: #333; line-height: 1.6; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #e0e0e0; border-radius: 10px;">
         <table width="100%" style="border-collapse: collapse;">
           <tr>
-            <td style="background-color: #F56100; padding: 20px; text-align: center; color: #000000; border-radius: 10px 10px 0 0;">
+            <td style="background-color: #8FAF9A; padding: 20px; text-align: center; color: #000000; border-radius: 10px 10px 0 0;">
               <h2 style="margin: 0; font-size: 24px;">Verify your email</h2>
             </td>
           </tr>
@@ -180,7 +200,7 @@ const resendUserVerificationEmail = async (email: string) => {
                 <p style="font-size: 18px;">Your OTP is: <span style="font-weight:bold">${otpToken.otp}</span><br/> This OTP will expire in 5 minutes.</p>
               </div>
               <p style="font-size: 14px; color: #555;">If you did not request this change, please ignore this email.</p>
-              <p style="font-size: 16px; margin-top: 20px;">Thank you,<br>Barbers Time</p>
+              <p style="font-size: 16px; margin-top: 20px;">Thank you,<br>VitaKinetic</p>
             </td>
           </tr>
           <tr>
@@ -205,11 +225,10 @@ const getMyProfileFromDB = async (id: string) => {
       id: true,
       fullName: true,
       email: true,
-      dateOfBirth: true,
       phoneNumber: true,
       address: true,
       image: true,
-      isProfileComplete: true,
+      // isProfileComplete: true,
       createdAt: true,
       updatedAt: true,
     },
@@ -266,9 +285,8 @@ const updateMyProfileIntoDB = async (id: string, payload: any) => {
       id: true,
       fullName: true,
       email: true,
-      dateOfBirth: true,
       phoneNumber: true,
-      gender: true,
+      address: true,
     },
   });
   if (!updatedUser) {
@@ -374,7 +392,7 @@ const forgotPassword = async (payload: { email: string }) => {
     `<div style="font-family: Arial, sans-serif; color: #333; line-height: 1.6; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #e0e0e0; border-radius: 10px;">
       <table width="100%" style="border-collapse: collapse;">
         <tr>
-          <td style="background-color: #F56100; padding: 20px; text-align: center; color: #fff; border-radius: 10px 10px 0 0;">
+          <td style="background-color: #8FAF9A; padding: 20px; text-align: center; color: #fff; border-radius: 10px 10px 0 0;">
             <h2 style="margin: 0; font-size: 24px;">Reset Password OTP</h2>
           </td>
         </tr>
@@ -386,12 +404,12 @@ const forgotPassword = async (payload: { email: string }) => {
               <p style="font-size: 18px;">Your OTP is: <span style="font-weight:bold">${otpToken.otp}</span><br/>This OTP will expire in 5 minutes.</p>
             </div>
             <p style="font-size: 14px; color: #555;">If you did not request this change, please ignore this email. No further action is needed.</p>
-            <p style="font-size: 16px; margin-top: 20px;">Thank you,<br>Barbers Time</p>
+            <p style="font-size: 16px; margin-top: 20px;">Thank you,<br>VitaKinetic</p>
           </td>
         </tr>
         <tr>
           <td style="background-color: #f5f5f5; padding: 15px; text-align: center; font-size: 12px; color: #888; border-radius: 0 0 10px 10px;">
-            <p style="margin: 0;">&copy; ${new Date().getFullYear()} Barbers Time Team. All rights reserved.</p>
+            <p style="margin: 0;">&copy; ${new Date().getFullYear()} VitaKinetic Team. All rights reserved.</p>
           </td>
         </tr>
       </table>
@@ -426,7 +444,7 @@ const resendOtpIntoDB = async (payload: { email: string }) => {
     `<div style="font-family: Arial, sans-serif; color: #333; line-height: 1.6; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #000000; border-radius: 10px;">
       <table width="100%" style="border-collapse: collapse;">
         <tr>
-          <td style="background-color: #F56100; padding: 20px; text-align: center; color: #fff; border-radius: 10px 10px 0 0;">
+          <td style="background-color: #8FAF9A; padding: 20px; text-align: center; color: #fff; border-radius: 10px 10px 0 0;">
             <h2 style="margin: 0; font-size: 24px;">Reset Password OTP</h2>
           </td>
         </tr>
@@ -438,12 +456,12 @@ const resendOtpIntoDB = async (payload: { email: string }) => {
               <p style="font-size: 18px;">Your OTP is: <span style="font-weight:bold">${otpToken.otp}</span><br/>This OTP will expire in 5 minutes.</p>
             </div>
             <p style="font-size: 14px; color: #555;">If you did not request this change, please ignore this email. No further action is needed.</p>
-            <p style="font-size: 16px; margin-top: 20px;">Thank you,<br>Barbers Time</p>
+            <p style="font-size: 16px; margin-top: 20px;">Thank you,<br>VitaKinetic</p>
           </td>
         </tr>
         <tr>
           <td style="background-color: #f5f5f5; padding: 15px; text-align: center; font-size: 12px; color: #888; border-radius: 0 0 10px 10px;">
-            <p style="margin: 0;">&copy; ${new Date().getFullYear()} Barbers Time Team. All rights reserved.</p>
+            <p style="margin: 0;">&copy; ${new Date().getFullYear()} VitaKinetic Team. All rights reserved.</p>
           </td>
         </tr>
       </table>
@@ -558,7 +576,7 @@ const verifyOtpInDB = async (bodyData: {
       email: updatedUser.email,
       address: {
         city: 'Default City',
-        country: 'DZA', // fallback for now
+        country: 'America', // fallback for now
       },
       metadata: {
         userId: updatedUser.id,
@@ -784,10 +802,52 @@ const updateProfileImageIntoDB = async (
   return updatedUser;
 };
 
-
+const trainerRegisterUserIntoDB = async (payload: { 
+  fullName: string;
+  email: string;
+  password: string;
+  phoneNumber: string;
+},
+fileUrl: string
+) => {
+  // 1. Check if user already exists
+  const existingUser = await prisma.user.findUnique({
+    where: { email: payload.email },
+  });
+  if (existingUser) {
+    throw new AppError(httpStatus.CONFLICT, 'User already exists!');
+  }
+  // 2. Hash password
+  const hashedPassword = await bcrypt.hash(payload.password, 12);
+  // 3. Create user with role TRAINER
+  const createdUser = await prisma.user.create({
+    data: {
+      fullName: payload.fullName,
+      email: payload.email, 
+      password: hashedPassword,
+      phoneNumber: payload.phoneNumber,
+      status: UserStatus.PENDING,
+      role: UserRoleEnum.TRAINER,
+      isVerified: false,
+    },
+  }); 
+  if (!createdUser) {
+    throw new AppError(httpStatus.BAD_REQUEST, 'User not created!');
+  }
+  // 4. Save certification document URL
+  await prisma.trainer.create({
+    data: {
+      userId: createdUser.id,
+      certifications: [fileUrl],
+      experienceYears: 0,
+    },
+  });
+  return { message: 'Trainer registered successfully! Awaiting approval.' };
+};
 
 export const UserServices = {
   registerUserIntoDB,
+  trainerRegisterUserIntoDB,
   getMyProfileFromDB,
   getMyProfileForSellerFromDB,
   updateMyProfileIntoDB,

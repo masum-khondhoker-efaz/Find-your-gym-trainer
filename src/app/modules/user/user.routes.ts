@@ -14,6 +14,14 @@ router.post(
   UserControllers.registerUser,
 );
 
+router.post(
+  '/trainer-register',
+  multerUploadMultiple.single('certificationDocument'),
+  parseBody,
+  validateRequest(UserValidations.trainerRegisterUser),
+  UserControllers.trainerRegisterUser,
+);
+
 
 router.put(
   '/verify-otp',

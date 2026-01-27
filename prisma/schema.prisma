@@ -18,6 +18,10 @@ model User {
   isProfileComplete          Boolean       @default(false)
   address                    String?
   isLoggedIn                 Boolean       @default(false)
+  bio                        String?
+  gymId                      String?
+  gymName                    String?
+  fitnessGoals               String[]
   image                      String?
   phoneNumber                String?
   dateOfBirth                String?
@@ -45,10 +49,15 @@ model User {
   favoriteProduct  FavoriteProduct[]
   foundingTeam     FoundingTeam[]
   contactUsInfo    ContactUsInfo[]
+  trainers         Trainer[]
+  appliedReferrals AppliedReferral[]
+  serviceTypes     ServiceTypes[]
+  specialties      Specialties[]
+  referrals        Referral[]
+  socialAccounts   SocialAccount[]
 
   @@map("users")
 }
-
 
 model Admin {
   id           String       @id @default(auto()) @map("_id") @db.ObjectId
@@ -65,6 +74,110 @@ model Admin {
   @@map("admins")
 }
 
+model Trainer {
+  id              String   @id @default(auto()) @map("_id") @db.ObjectId
+  userId          String   @db.ObjectId
+  specialtyId     String?  @db.ObjectId
+  portfolio       String[]
+  certifications  String[]
+  experienceYears Int
+  totalReferrals  Int      @default(0)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  // Relationships
+  user                User                 @relation(fields: [userId], references: [id])
+  specialty           Specialties?         @relation(fields: [specialtyId], references: [id])
+  trainerServiceTypes TrainerServiceType[]
+
+  @@map("trainers")
+}
+
+model Referral {
+  id               String            @id @default(auto()) @map("_id") @db.ObjectId
+  userId           String            @db.ObjectId
+  referralCode     String
+  createdAt        DateTime          @default(now())
+  updatedAt        DateTime          @updatedAt
+  appliedReferrals AppliedReferral[]
+
+  // Relationships
+  user User @relation(fields: [userId], references: [id])
+
+  @@unique([referralCode, userId]) // prevent duplicate referrals
+  @@map("referrals")
+}
+
+model AppliedReferral {
+  id           String   @id @default(auto()) @map("_id") @db.ObjectId
+  userId       String   @db.ObjectId
+  referralId   String   @db.ObjectId
+  referralCode String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  // Relationships
+  referral Referral @relation(fields: [referralId], references: [id])
+  user     User     @relation(fields: [userId], references: [id])
+
+  @@unique([referralCode, userId]) // prevent duplicate applied referrals
+  @@map("applied_referrals")
+}
+
+model ServiceTypes {
+  id          String   @id @default(auto()) @map("_id") @db.ObjectId
+  userId      String   @db.ObjectId
+  serviceName String   @unique
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  // Relationships
+  user                User                 @relation(fields: [userId], references: [id])
+  trainerServiceTypes TrainerServiceType[]
+
+  @@map("service_types")
+}
+
+model TrainerServiceType {
+  id            String @id @default(auto()) @map("_id") @db.ObjectId
+  trainerId     String @db.ObjectId
+  serviceTypeId String @db.ObjectId
+
+  trainer     Trainer      @relation(fields: [trainerId], references: [id])
+  serviceType ServiceTypes @relation(fields: [serviceTypeId], references: [id])
+
+  @@unique([trainerId, serviceTypeId])
+  @@map("trainer_service_types")
+}
+
+model Specialties {
+  id            String   @id @default(auto()) @map("_id") @db.ObjectId
+  userId        String   @db.ObjectId
+  specialtyName String   @unique
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  // Relationships
+  user    User      @relation(fields: [userId], references: [id])
+  trainer Trainer[]
+
+  @@map("specialties")
+}
+
+model SocialAccount {
+  id           String             @id @default(auto()) @map("_id") @db.ObjectId
+  userId       String             @db.ObjectId
+  platformType SocialPlatformType
+  platformUrl  String
+  createdAt    DateTime           @default(now())
+  updatedAt    DateTime           @updatedAt
+
+  // Relationships
+  user User @relation(fields: [userId], references: [id])
+
+  @@unique([platformType, platformUrl]) // prevent duplicate social accounts
+  @@map("social_accounts")
+}
 
 model Category {
   id        String   @id @default(auto()) @map("_id") @db.ObjectId
@@ -82,7 +195,6 @@ model Category {
   @@map("categories")
 }
 
-
 model DeletedProduct {
   id            String   @id @default(auto()) @map("_id") @db.ObjectId
   productId     String?  @db.ObjectId
@@ -99,8 +211,7 @@ model DeletedProduct {
   updatedAt     DateTime @updatedAt
 
   // Relationships
-  category   Category?     @relation(fields: [categoryId], references: [id])
-  
+  category Category? @relation(fields: [categoryId], references: [id])
 
   @@map("deleted_products")
 }
@@ -113,7 +224,7 @@ model FavoriteProduct {
   updatedAt DateTime @updatedAt
 
   // Relationships
-  user    User    @relation(fields: [userId], references: [id])
+  user User @relation(fields: [userId], references: [id])
 
   @@unique([userId, productId]) // prevent duplicate favorites
   @@map("favorite_products")
@@ -149,13 +260,10 @@ model Payment {
   createdAt       DateTime      @default(now())
   updatedAt       DateTime      @updatedAt
 
-  user  User    @relation(fields: [userId], references: [id])
-
+  user User @relation(fields: [userId], references: [id])
 
   @@map("payments")
 }
-
-
 
 model Review {
   id        String   @id @default(auto()) @map("_id") @db.ObjectId
@@ -167,7 +275,7 @@ model Review {
   updatedAt DateTime @updatedAt
 
   // Relationships
-  user    User    @relation(fields: [userId], references: [id])
+  user User @relation(fields: [userId], references: [id])
 
   @@map("reviews")
 }
@@ -186,7 +294,6 @@ model PrivacyPolicy {
   @@map("privacy_policies")
 }
 
-
 model Faq {
   id        String   @id @default(auto()) @map("_id") @db.ObjectId
   userId    String   @db.ObjectId
@@ -200,7 +307,6 @@ model Faq {
 
   @@map("faqs")
 }
-
 
 model AboutUs {
   id        String   @id @default(auto()) @map("_id") @db.ObjectId
@@ -305,7 +411,6 @@ model Reply {
   @@map("replies")
 }
 
-
 model FoundingTeam {
   id        String   @id @default(auto()) @map("_id") @db.ObjectId
   userId    String   @db.ObjectId
@@ -331,7 +436,6 @@ enum UserRoleEnum {
   MEMBER
 }
 
-
 enum OrderStatus {
   PENDING
   PROCESSING
@@ -341,13 +445,11 @@ enum OrderStatus {
   RETURNED
 }
 
-
 enum ResponseStatus {
   SUBMITTED // Response submitted
   AUTO_GRADED // MCQ/TrueFalse graded
   MANUAL_GRADED // Short answer graded by instructor
 }
-
 
 enum PaymentStatus {
   PENDING
@@ -358,6 +460,12 @@ enum PaymentStatus {
   REFUNDED
   REQUIRES_CAPTURE
   CANCELLED
+}
+
+enum SocialPlatformType {
+  LINKEDIN
+  FACEBOOK
+  X
 }
 
 enum PlatFormType {
@@ -389,7 +497,6 @@ enum SupportStatus {
   RESOLVED
   CLOSED
 }
-
 
 enum UserStatus {
   ACTIVE
