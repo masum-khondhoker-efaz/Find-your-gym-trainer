@@ -38,6 +38,28 @@ const loginUserFromDB = async (payload: { email: string; password: string }) => 
   if (user.status === UserStatus.BLOCKED) {
     throw new AppError(httpStatus.FORBIDDEN, 'Your account is blocked. Please contact support.');
   }
+  if(user.role === UserRoleEnum.TRAINER){
+    const trainerProfile = await prisma.user.findUnique({
+      where: { id: user.id,
+        isProfileComplete: true
+       },
+       include: {
+        trainers: true,
+       },
+    });
+    if(!trainerProfile || !trainerProfile.trainers){
+      throw new AppError(
+        httpStatus.FORBIDDEN,
+        'Trainer profile not found. Please complete your profile to proceed.',
+      );
+    } 
+    if (!trainerProfile) {
+      throw new AppError(
+        httpStatus.FORBIDDEN,
+        'Please wait while your trainer profile is being reviewed.',
+      );
+    }
+  }
 
   // 6. Mark user as logged in
   if (user.isLoggedIn === false) {

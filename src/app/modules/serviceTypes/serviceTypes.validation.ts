@@ -2,7 +2,7 @@ import { z } from 'zod';
 
 const createSchema = z.object({
   body: z.object({
-    serviceName: z.string().min(1, 'Name is required'),
+    serviceName: z.string().min(1, 'Service name is required'),
     }),
 });
 

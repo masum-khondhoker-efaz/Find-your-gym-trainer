@@ -46,20 +46,13 @@ export interface ISearchAndFilterOptions extends IPaginationOptions {
   startDate?: string;
   endDate?: string;
   isProfileComplete?: boolean | string;
-  isSellerInfoComplete?: string | boolean;
 
-  // Seller-related filters
-  companyName?: string;
-  companyEmail?: string;
-  contactInfo?: string;
-
-  // Car Brand-related filters
-  iconName?: string;
-  year?: number;
-  brandName?: string;
-  modelName?: string;
-  hp?: number;
-  kw?: number;
+  // Trainer-related filters
+  specialtyName?: string;
+  experienceYears?: number;
+  trainerServiceType?: string;
+  serviceName?: string;
+ 
 
   // Category-related filters
   name?: string;
@@ -72,12 +65,6 @@ export interface ISearchAndFilterOptions extends IPaginationOptions {
   stockMin?: number;
   stockMax?: number;
   isVisible?: boolean | string;
-
-  // Cart-related filters
-  quantity?: number;
-  quantityMin?: number;
-  quantityMax?: number;
-  productId?: string;
 
   // Founding Team-related filters
   memberName?: string;

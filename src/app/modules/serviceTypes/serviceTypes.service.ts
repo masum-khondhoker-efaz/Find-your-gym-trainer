@@ -5,6 +5,17 @@ import httpStatus from 'http-status';
 
 
 const createServiceTypesIntoDb = async (userId: string, data: any) => {
+
+  // Check if serviceTypes with the same name already exists
+  const existingServiceType = await prisma.serviceTypes.findFirst({
+    where: {
+      serviceName: data.serviceName,
+    },
+  });
+
+  if (existingServiceType) {
+    return existingServiceType;
+  }
   
     const result = await prisma.serviceTypes.create({ 
     data: {
@@ -22,7 +33,7 @@ const getServiceTypesListFromDb = async (userId: string) => {
   
     const result = await prisma.serviceTypes.findMany();
     if (result.length === 0) {
-    return { message: 'No serviceTypes found' };
+    return [];
   }
     return result;
 };
@@ -44,10 +55,21 @@ const getServiceTypesByIdFromDb = async (userId: string, serviceTypesId: string)
 
 const updateServiceTypesIntoDb = async (userId: string, serviceTypesId: string, data: any) => {
   
+  // Check if serviceTypes exists
+  const existingServiceType = await prisma.serviceTypes.findUnique({
+    where: {
+      id: serviceTypesId,
+    },
+  });
+
+  if (!existingServiceType) {
+    throw new AppError(httpStatus.NOT_FOUND, 'serviceTypes not found');
+  }
+
     const result = await prisma.serviceTypes.update({
       where:  {
         id: serviceTypesId,
-        userId: userId,
+        // userId: userId,
     },
     data: {
       ...data,
@@ -60,10 +82,20 @@ const updateServiceTypesIntoDb = async (userId: string, serviceTypesId: string, 
   };
 
 const deleteServiceTypesItemFromDb = async (userId: string, serviceTypesId: string) => {
-    const deletedItem = await prisma.serviceTypes.delete({
+  // Check if serviceTypes exists
+  const existingServiceType = await prisma.serviceTypes.findUnique({
+    where: {
+      id: serviceTypesId,
+    },
+  });
+
+  if (!existingServiceType) {
+    throw new AppError(httpStatus.NOT_FOUND, 'serviceTypes not found');
+  }
+  const deletedItem = await prisma.serviceTypes.delete({
       where: {
       id: serviceTypesId,
-      userId: userId,
+      // userId: userId,
     },
   });
   if (!deletedItem) {

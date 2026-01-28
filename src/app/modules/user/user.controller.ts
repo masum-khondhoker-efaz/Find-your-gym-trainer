@@ -19,6 +19,7 @@ const registerUser = catchAsync(async (req, res) => {
 });
 
 const trainerRegisterUser = catchAsync(async (req, res) => {
+  const user = req.user as any;
   const file = req.file;
   if (!file) {
     throw new AppError(
@@ -28,7 +29,8 @@ const trainerRegisterUser = catchAsync(async (req, res) => {
   } 
   // Upload to DigitalOcean
   const fileUrl = await uploadFileToS3(file, 'trainer-certification-documents');
-  const result = await UserServices.trainerRegisterUserIntoDB(req.body, fileUrl);
+  const result = await UserServices.trainerRegisterUserIntoDB(user.id, req.body, fileUrl);
+  
 
   sendResponse(res, {
     statusCode: httpStatus.CREATED,

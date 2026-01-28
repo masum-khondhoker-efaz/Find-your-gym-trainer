@@ -1,6 +1,9 @@
 import express from 'express';
 import { UserRouters } from '../modules/user/user.routes';
 import { AuthRouters } from '../modules/auth/auth.routes';
+import { path } from 'pdfkit';
+import { specialtiesRoutes } from '../modules/specialties/specialties.routes';
+import { serviceTypesRoutes } from '../modules/serviceTypes/serviceTypes.routes';
 // import { termAndConditionRoutes } from '../modules/termAndCondition/termAndCondition.routes';
 // import { privacyPolicyRoutes } from '../modules/privacyPolicy/privacyPolicy.routes';
 // import { reviewRoutes } from '../modules/review/review.routes';
@@ -13,7 +16,7 @@ import { AuthRouters } from '../modules/auth/auth.routes';
 // import { checkoutRoutes } from '../modules/checkout/checkout.routes';
 // import { favoriteProductRoutes } from '../modules/favoriteProduct/favoriteProduct.routes';
 // import { foundingTeamRoutes } from '../modules/foundingTeam/foundingTeam.routes';
-// import { adminRoutes } from '../modules/admin/admin.routes';
+import { adminRoutes } from '../modules/admin/admin.routes';
 // import { contactUsInfoRoutes } from '../modules/contactUsInfo/contactUsInfo.routes';
 // import { newsletterSubscriberRoutes } from '../modules/newsletterSubscriber/newsletterSubscriber.routes';
 // import { supportRoutes } from '../modules/support/support.routes';
@@ -28,10 +31,10 @@ const moduleRoutes = [
     path: '/auth',
     route: AuthRouters,
   },
-  // {
-  //   path: '/admin',
-  //   route: adminRoutes,
-  // },
+  {
+    path: '/admin',
+    route: adminRoutes,
+  },
   {
     path: '/users',
     route: UserRouters,
@@ -100,7 +103,14 @@ const moduleRoutes = [
   //   path: '/payments',
   //   route: PaymentRoutes,
   // },
- 
+  {
+    path: '/specialties',
+    route: specialtiesRoutes,
+  },
+  {
+    path: '/service-types',
+    route: serviceTypesRoutes,
+  },
 ];
 
 moduleRoutes.forEach(route => router.use(route.path, route.route));

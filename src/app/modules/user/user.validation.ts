@@ -17,7 +17,7 @@ const registerUser = z.object({
     password: z.string({
       required_error: 'Password is required!',
     }),
-    role: z.enum(['MEMBER', 'SELLER'], {
+    role: z.enum(['MEMBER', 'TRAINER'], {
       required_error: 'Role is required!',  
     }),
   }),
@@ -31,7 +31,7 @@ const trainerRegisterUser = z.object({
     }),
     experienceYears: z.string({
       required_error: 'Experience years is required!',
-    }),
+    }).transform((val) => Number(val)),
     trainerServiceType: z.array(
       z.string({
         required_error: 'Service type is required!',

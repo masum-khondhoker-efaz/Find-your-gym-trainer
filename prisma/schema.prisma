@@ -76,7 +76,7 @@ model Admin {
 
 model Trainer {
   id              String   @id @default(auto()) @map("_id") @db.ObjectId
-  userId          String   @db.ObjectId
+  userId          String   @unique @db.ObjectId
   specialtyId     String?  @db.ObjectId
   portfolio       String[]
   certifications  String[]
@@ -91,6 +91,49 @@ model Trainer {
   trainerServiceTypes TrainerServiceType[]
 
   @@map("trainers")
+}
+
+model ServiceTypes {
+  id          String   @id @default(auto()) @map("_id") @db.ObjectId
+  userId      String   @db.ObjectId
+  serviceName String   @unique
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  // Relationships
+  user                User                 @relation(fields: [userId], references: [id])
+  trainerServiceTypes TrainerServiceType[]
+
+  @@map("service_types")
+}
+
+model TrainerServiceType {
+  id            String   @id @default(auto()) @map("_id") @db.ObjectId
+  trainerId     String   @db.ObjectId
+  serviceTypeId String   @db.ObjectId
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  // Relationships 
+  trainer     Trainer      @relation(fields: [trainerId], references: [userId])
+  serviceType ServiceTypes @relation(fields: [serviceTypeId], references: [id])
+
+  @@unique([trainerId, serviceTypeId])
+  @@map("trainer_service_types")
+}
+
+model Specialties {
+  id            String   @id @default(auto()) @map("_id") @db.ObjectId
+  userId        String   @db.ObjectId
+  specialtyName String   @unique
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  // Relationships
+  user    User      @relation(fields: [userId], references: [id])
+  trainer Trainer[]
+
+  @@map("specialties")
 }
 
 model Referral {
@@ -122,46 +165,6 @@ model AppliedReferral {
 
   @@unique([referralCode, userId]) // prevent duplicate applied referrals
   @@map("applied_referrals")
-}
-
-model ServiceTypes {
-  id          String   @id @default(auto()) @map("_id") @db.ObjectId
-  userId      String   @db.ObjectId
-  serviceName String   @unique
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
-
-  // Relationships
-  user                User                 @relation(fields: [userId], references: [id])
-  trainerServiceTypes TrainerServiceType[]
-
-  @@map("service_types")
-}
-
-model TrainerServiceType {
-  id            String @id @default(auto()) @map("_id") @db.ObjectId
-  trainerId     String @db.ObjectId
-  serviceTypeId String @db.ObjectId
-
-  trainer     Trainer      @relation(fields: [trainerId], references: [id])
-  serviceType ServiceTypes @relation(fields: [serviceTypeId], references: [id])
-
-  @@unique([trainerId, serviceTypeId])
-  @@map("trainer_service_types")
-}
-
-model Specialties {
-  id            String   @id @default(auto()) @map("_id") @db.ObjectId
-  userId        String   @db.ObjectId
-  specialtyName String   @unique
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
-
-  // Relationships
-  user    User      @relation(fields: [userId], references: [id])
-  trainer Trainer[]
-
-  @@map("specialties")
 }
 
 model SocialAccount {

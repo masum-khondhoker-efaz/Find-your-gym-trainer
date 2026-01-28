@@ -107,6 +107,7 @@ const registerUserIntoDB = async (payload: {
           status: UserStatus.PENDING,
           role: payload.role,
           isVerified: false,
+
         },
       });
 
@@ -559,6 +560,7 @@ const verifyOtpInDB = async (bodyData: {
     data: {
       status: UserStatus.ACTIVE,
       isVerified: true,
+      isProfileComplete: userData.role === UserRoleEnum.MEMBER ? true : false,
     },
     select: {
       id: true,
@@ -566,6 +568,7 @@ const verifyOtpInDB = async (bodyData: {
       fullName: true,
       stripeCustomerId: true,
       role: true,
+      image: true,
     },
   });
 
@@ -591,8 +594,28 @@ const verifyOtpInDB = async (bodyData: {
 
     updatedUser.stripeCustomerId = customer.id;
   }
+  // 7. Issue tokens
+    const accessToken = await generateToken(
+      { id: updatedUser.id, email: updatedUser.email, role: updatedUser.role, purpose: 'access' },
+      config.jwt.access_secret as Secret,
+      config.jwt.access_expires_in as string,
+    );
+  
+    const refreshTokenValue = await refreshToken(
+      { id: updatedUser.id, email: updatedUser.email, role: updatedUser.role },
+      config.jwt.refresh_secret as Secret,
+      config.jwt.refresh_expires_in as string,
+    );
 
-  return;
+  return{
+    id: updatedUser.id,
+    name: updatedUser.fullName,
+    email: updatedUser.email,
+    image: updatedUser.image,
+    role: updatedUser.role,
+    accessToken: accessToken,
+    refreshToken: refreshTokenValue,
+  }
 };
 
 // verify otp
@@ -802,47 +825,65 @@ const updateProfileImageIntoDB = async (
   return updatedUser;
 };
 
-const trainerRegisterUserIntoDB = async (payload: { 
-  fullName: string;
-  email: string;
-  password: string;
-  phoneNumber: string;
+const trainerRegisterUserIntoDB = async (
+  userId: string,
+  payload: { 
+  specialtyId: string;
+  experienceYears: number;
+  trainerServiceType: string[];
 },
 fileUrl: string
 ) => {
   // 1. Check if user already exists
   const existingUser = await prisma.user.findUnique({
-    where: { email: payload.email },
+    where: { id: userId },
   });
-  if (existingUser) {
-    throw new AppError(httpStatus.CONFLICT, 'User already exists!');
+  if (!existingUser) {
+    throw new AppError(httpStatus.NOT_FOUND, 'User not found!');
   }
-  // 2. Hash password
-  const hashedPassword = await bcrypt.hash(payload.password, 12);
-  // 3. Create user with role TRAINER
-  const createdUser = await prisma.user.create({
+  // 2. Update user to trainer
+  const updatedUser = await prisma.trainer.create({
     data: {
-      fullName: payload.fullName,
-      email: payload.email, 
-      password: hashedPassword,
-      phoneNumber: payload.phoneNumber,
-      status: UserStatus.PENDING,
-      role: UserRoleEnum.TRAINER,
-      isVerified: false,
-    },
-  }); 
-  if (!createdUser) {
-    throw new AppError(httpStatus.BAD_REQUEST, 'User not created!');
-  }
-  // 4. Save certification document URL
-  await prisma.trainer.create({
-    data: {
-      userId: createdUser.id,
+      userId: userId,
+      specialtyId: payload.specialtyId,
+      experienceYears: payload.experienceYears,
       certifications: [fileUrl],
-      experienceYears: 0,
     },
   });
-  return { message: 'Trainer registered successfully! Awaiting approval.' };
+  if (updatedUser) {
+    await prisma.trainerServiceType.createMany({
+      data: payload.trainerServiceType.map((serviceType) => ({
+        trainerId: updatedUser.userId,
+        serviceTypeId: serviceType,
+      })),
+    });
+  }
+  if (!updatedUser) {
+    throw new AppError(httpStatus.BAD_REQUEST, 'Trainer not created!');
+  }
+  // 3. Return updated trainer profile after checking
+  const trainerProfile = await prisma.user.findUnique({
+    where: { id: userId },
+    include: {
+      trainers: {
+        include: {
+          specialty: true,
+          trainerServiceTypes: {
+            include: {
+              serviceType: {
+                select: {
+                  id: true,
+                  serviceName: true,
+              },
+            }
+            },  
+          },
+        },
+      },
+    },
+  });
+  return trainerProfile;
+  
 };
 
 export const UserServices = {
