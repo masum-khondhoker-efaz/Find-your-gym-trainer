@@ -81,8 +81,6 @@ const registerUserIntoDB = async (payload: {
         },
       });
 
-
-
       return otpToken;
     }
     throw new AppError(httpStatus.CONFLICT, 'User already exists!');
@@ -107,7 +105,6 @@ const registerUserIntoDB = async (payload: {
           status: UserStatus.PENDING,
           role: payload.role,
           isVerified: false,
-
         },
       });
 
@@ -237,10 +234,54 @@ const getMyProfileFromDB = async (id: string) => {
   if (!Profile) {
     throw new AppError(httpStatus.NOT_FOUND, 'Profile not found');
   }
- 
-
 
   return Profile;
+};
+
+const getMyTrainerProfileFromDB = async (id: string) => {
+  const Profile = await prisma.trainer.findUnique({
+    where: {
+      userId: id,
+    },
+    select: {
+      id: true,
+      specialtyId: true,
+      experienceYears: true,
+      certifications: true,
+      portfolio: true,
+      specialty: {
+        select: {
+          id: true,
+          specialtyName: true,
+        },
+      },
+      trainerServiceTypes: {
+        select: {
+          serviceType: {
+            select: {
+              id: true,
+              serviceName: true,
+            },
+          },
+        },
+      },
+    },
+  });
+  if (!Profile) {
+    throw new AppError(httpStatus.NOT_FOUND, 'Profile not found');
+  }
+  return {
+    id: Profile.id,
+    specialtyId: Profile.specialtyId,
+    experienceYears: Profile.experienceYears,
+    certifications: Profile.certifications,
+    portfolio: Profile.portfolio,
+    specialtyName: Profile.specialty?.specialtyName,
+    serviceTypes: Profile.trainerServiceTypes.map(tst => ({
+      id: tst.serviceType.id,
+      serviceName: tst.serviceType.serviceName,
+    })),
+  };
 };
 
 const getMyProfileForSellerFromDB = async (id: string) => {
@@ -250,7 +291,6 @@ const getMyProfileForSellerFromDB = async (id: string) => {
     },
     select: {
       id: true,
-      
     },
   });
   if (!Profile) {
@@ -262,8 +302,6 @@ const getMyProfileForSellerFromDB = async (id: string) => {
     id: Profile.id,
   };
 };
-
-
 
 const updateMyProfileIntoDB = async (id: string, payload: any) => {
   const userData = payload;
@@ -307,6 +345,71 @@ const updateUserRoleStatusIntoDB = async (id: string, payload: any) => {
     },
     data: payload,
   });
+  return result;
+};
+
+const updateTrainerProfileIntoDB = async (
+  userId: string,
+  payload: {
+    specialtyId?: string;
+    experienceYears?: number;
+    trainerServiceType?: string[];
+  },
+  fileUrl: {
+    certifications?: string[];
+    portfolio?: string[];
+  },
+) => {
+  // 1️⃣ Find trainer by userId (ownership check)
+  const existingTrainer = await prisma.trainer.findUnique({
+    where: { userId },
+  });
+
+  if (!existingTrainer) {
+    throw new AppError(httpStatus.NOT_FOUND, 'Trainer profile not found!');
+  }
+
+  // 2️⃣ Build update data (partial update)
+  const updateData: any = {
+    ...(payload.specialtyId && { specialtyId: payload.specialtyId }),
+    ...(payload.experienceYears && {
+      experienceYears: payload.experienceYears,
+    }),
+    ...(fileUrl.certifications && {
+      certifications: fileUrl.certifications,
+    }),
+    ...(fileUrl.portfolio && {
+      portfolio: fileUrl.portfolio,
+    }),
+  };
+
+  // 3️⃣ Transaction for consistency
+  const result = await prisma.$transaction(async tx => {
+    // Update trainer profile
+    const updatedTrainer = await tx.trainer.update({
+      where: { userId: existingTrainer.userId },
+      data: updateData,
+    });
+
+    // 4️⃣ Update service types (if provided)
+    if (payload.trainerServiceType && payload.trainerServiceType.length > 0) {
+      // Remove old mappings
+      await tx.trainerServiceType.deleteMany({
+        where: { trainerId: existingTrainer.id },
+      });
+
+      // Insert new mappings
+      await tx.trainerServiceType.createMany({
+        data: payload.trainerServiceType.map(serviceTypeId => ({
+          trainerId: existingTrainer.id,
+          serviceTypeId,
+        })),
+      });
+    }
+
+    return updatedTrainer;
+  });
+
   return result;
 };
 
@@ -473,68 +576,6 @@ const resendOtpIntoDB = async (payload: { email: string }) => {
   return otpToken;
 };
 
-// verify otp
-const verifyOtpInDB1 = async (bodyData: {
-  email: string;
-  password: string;
-  otp: number;
-}) => {
-  const userData = await prisma.user.findUnique({
-    where: { email: bodyData.email },
-  });
-
-  if (!userData) {
-    throw new AppError(httpStatus.CONFLICT, 'User not found!');
-  }
-
-  const currentTime = new Date();
-
-  // if (userData.otp !== bodyData.otp) {
-  //   throw new AppError(httpStatus.CONFLICT, 'Your OTP is incorrect!');
-  // }
-
-  // if (!userData.otpExpiry || userData.otpExpiry <= currentTime) {
-  //   throw new AppError(
-  //     httpStatus.CONFLICT,
-  //     'Your OTP has expired. Please request a new one.',
-  //   );
-  // }
-
-  // Prepare common fields
-  const updateData: any = {
-    otp: null,
-    otpExpiry: null,
-  };
-
-  // If user is not active, determine what else to update
-  if (userData.status !== UserStatus.ACTIVE) {
-    // updateData.status = UserStatus.ACTIVE;
-  }
-
-  await prisma.user.update({
-    where: { email: bodyData.email },
-    data: updateData,
-  });
-
-  // Create a new Stripe customer
-  const customer = await stripe.customers.create({
-    name: userData.fullName,
-    email: userData.email,
-    address: {
-      city: userData.address ?? 'City', // You can modify this as needed
-      country: 'America', // You can modify this as needed
-    },
-    metadata: {
-      userId: userData.id,
-    },
-  });
-  if (!customer || !customer.id) {
-    throw new AppError(httpStatus.BAD_REQUEST, 'Stripe customer not created!');
-  }
-
-  return { message: 'OTP verified successfully!' };
-};
-
 const verifyOtpInDB = async (bodyData: {
   email: string;
   otp: number;
@@ -595,19 +636,24 @@ const verifyOtpInDB = async (bodyData: {
     updatedUser.stripeCustomerId = customer.id;
   }
   // 7. Issue tokens
-    const accessToken = await generateToken(
-      { id: updatedUser.id, email: updatedUser.email, role: updatedUser.role, purpose: 'access' },
-      config.jwt.access_secret as Secret,
-      config.jwt.access_expires_in as string,
-    );
-  
-    const refreshTokenValue = await refreshToken(
-      { id: updatedUser.id, email: updatedUser.email, role: updatedUser.role },
-      config.jwt.refresh_secret as Secret,
-      config.jwt.refresh_expires_in as string,
-    );
+  const accessToken = await generateToken(
+    {
+      id: updatedUser.id,
+      email: updatedUser.email,
+      role: updatedUser.role,
+      purpose: 'access',
+    },
+    config.jwt.access_secret as Secret,
+    config.jwt.access_expires_in as string,
+  );
 
-  return{
+  const refreshTokenValue = await refreshToken(
+    { id: updatedUser.id, email: updatedUser.email, role: updatedUser.role },
+    config.jwt.refresh_secret as Secret,
+    config.jwt.refresh_expires_in as string,
+  );
+
+  return {
     id: updatedUser.id,
     name: updatedUser.fullName,
     email: updatedUser.email,
@@ -615,7 +661,7 @@ const verifyOtpInDB = async (bodyData: {
     role: updatedUser.role,
     accessToken: accessToken,
     refreshToken: refreshTokenValue,
-  }
+  };
 };
 
 // verify otp
@@ -688,7 +734,6 @@ const socialLoginIntoDB = async (payload: SocialLoginPayload) => {
       );
     }
   } else {
-   
     // Create new user
     const createdUser = await prisma.user.create({
       data: {
@@ -696,14 +741,13 @@ const socialLoginIntoDB = async (payload: SocialLoginPayload) => {
         email: payload.email,
         image: payload.image ?? null,
         status: UserStatus.ACTIVE,
+        role: payload.role,
         fcmToken: payload.fcmToken ?? null,
         phoneNumber: payload.phoneNumber ?? null,
         address: payload.address ?? null,
-        isProfileComplete: false,
+        isProfileComplete: payload.role === UserRoleEnum.MEMBER ? true : false,
         isVerified: true,
-       
       },
-     
     });
 
     userRecord = createdUser;
@@ -718,14 +762,12 @@ const socialLoginIntoDB = async (payload: SocialLoginPayload) => {
     });
   }
 
-
-
   // Build tokens
   const accessToken = await generateToken(
     {
       id: userRecord.id,
       email: userRecord.email,
-      role: UserRoleEnum.MEMBER, // <-- default role
+      role: userRecord.role,
       purpose: 'access',
     },
     config.jwt.access_secret as Secret,
@@ -736,7 +778,7 @@ const socialLoginIntoDB = async (payload: SocialLoginPayload) => {
     {
       id: userRecord.id,
       email: userRecord.email,
-      role: UserRoleEnum.MEMBER, // <-- default role
+      role: userRecord.role,
     },
     config.jwt.refresh_secret as Secret,
     config.jwt.refresh_expires_in as string,
@@ -761,6 +803,11 @@ const updatePasswordIntoDb = async (payload: any) => {
 
   if (!userData) {
     throw new AppError(httpStatus.NOT_FOUND, 'User not found!');
+  }
+  // ✅ Verify OTP using JWT token
+  const isValid = verifyOtp(payload.email, payload.otp, payload.otpToken);
+  if (!isValid) {
+    throw new AppError(httpStatus.BAD_REQUEST, 'Invalid or expired OTP!');
   }
 
   // Only allow password update if user has verified OTP (e.g., set a flag after OTP verification)
@@ -827,12 +874,12 @@ const updateProfileImageIntoDB = async (
 
 const trainerRegisterUserIntoDB = async (
   userId: string,
-  payload: { 
-  specialtyId: string;
-  experienceYears: number;
-  trainerServiceType: string[];
-},
-fileUrl: string
+  payload: {
+    specialtyId: string;
+    experienceYears: number;
+    trainerServiceType: string[];
+  },
+  fileUrl: string,
 ) => {
   // 1. Check if user already exists
   const existingUser = await prisma.user.findUnique({
@@ -852,7 +899,7 @@ fileUrl: string
   });
   if (updatedUser) {
     await prisma.trainerServiceType.createMany({
-      data: payload.trainerServiceType.map((serviceType) => ({
+      data: payload.trainerServiceType.map(serviceType => ({
         trainerId: updatedUser.userId,
         serviceTypeId: serviceType,
       })),
@@ -874,16 +921,37 @@ fileUrl: string
                 select: {
                   id: true,
                   serviceName: true,
+                },
               },
-            }
-            },  
+            },
           },
         },
       },
     },
   });
   return trainerProfile;
-  
+};
+
+const getUserProfileImageForDelete = async (userId: string) => {
+  const userData = await prisma.user.findUnique({
+    where: { id: userId },
+    select: { image: true },
+  });
+  if (!userData) {
+    throw new AppError(httpStatus.NOT_FOUND, 'User not found!');
+  }
+  return userData.image;
+};
+
+const getTrainerProfileFilesForDelete = async (userId: string) => {
+  const trainerData = await prisma.trainer.findUnique({
+    where: { userId: userId },
+    select: { certifications: true, portfolio: true },
+  });
+  if (!trainerData) {
+    throw new AppError(httpStatus.NOT_FOUND, 'Trainer not found!');
+  }
+  return trainerData;
 };
 
 export const UserServices = {
@@ -903,4 +971,8 @@ export const UserServices = {
   resendUserVerificationEmail,
   deleteAccountFromDB,
   updateProfileImageIntoDB,
+  getUserProfileImageForDelete,
+  getTrainerProfileFilesForDelete,
+  updateTrainerProfileIntoDB,
+  getMyTrainerProfileFromDB
 };

@@ -41,21 +41,23 @@ const auth = (...roles: string[]) => {
           'User is not active. Please contact support.',
         );
       }
-      // if (!user.isProfileComplete) {
-      //   throw new AppError(
-      //     httpStatus.FORBIDDEN,
-      //     'Please complete your profile to proceed.',
-      //   );
+      // if (user.role === UserRoleEnum.EMPLOYEE) {
+      //   if (!user.isProfileComplete) {
+      //     throw new AppError(
+      //       httpStatus.FORBIDDEN,
+      //       'Please complete your profile to proceed.',
+      //     );
+      //   }
       // }
 
       // Role-based access check
       if (roles.length && !roles.includes(user.role)) {
+        console.log('Forbidden role:', user.role);
         throw new AppError(httpStatus.FORBIDDEN, 'Forbidden!');
       }
 
       // Attach user to request object
       req.user = user;
-      req.user.role = verifyUserToken.role;
       if (roles.length && !roles.includes(verifyUserToken.role)) {
         throw new AppError(httpStatus.FORBIDDEN, 'Forbidden!');
       }

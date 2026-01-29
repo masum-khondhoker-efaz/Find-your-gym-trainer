@@ -55,6 +55,11 @@ model User {
   specialties      Specialties[]
   referrals        Referral[]
   socialAccounts   SocialAccount[]
+  posts            Post[]
+  likes            Like[]
+  comments         Comment[]
+  shares           Share[]
+  postImpressions  PostImpression[]
 
   @@map("users")
 }
@@ -167,6 +172,85 @@ model AppliedReferral {
   @@map("applied_referrals")
 }
 
+model Post {
+  id      String  @id @default(auto()) @map("_id") @db.ObjectId
+  userId  String  @db.ObjectId
+  content String
+  image   String?
+
+  likeCount    Int @default(0)
+  commentCount Int @default(0)
+  shareCount   Int @default(0)
+
+  engagementCount Int @default(0)
+
+  impressionCount Int @default(0)
+  reachCount      Int @default(0)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Relationships
+  user            User             @relation(fields: [userId], references: [id])
+  likes           Like[]
+  comments        Comment[]
+  shares          Share[]
+  postImpressions PostImpression[]
+
+  @@map("posts")
+}
+
+model Like {
+  id     String @id @default(auto()) @map("_id") @db.ObjectId
+  postId String @db.ObjectId
+  userId String @db.ObjectId
+
+  post Post @relation(fields: [postId], references: [id])
+  user User @relation(fields: [userId], references: [id])
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([postId, userId]) // one like per user per post
+}
+
+model Comment {
+  id        String   @id @default(auto()) @map("_id") @db.ObjectId
+  postId    String   @db.ObjectId
+  userId    String   @db.ObjectId
+  text      String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  post Post @relation(fields: [postId], references: [id])
+  user User @relation(fields: [userId], references: [id])
+}
+
+model Share {
+  id        String   @id @default(auto()) @map("_id") @db.ObjectId
+  postId    String   @db.ObjectId
+  userId    String   @db.ObjectId
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  post Post @relation(fields: [postId], references: [id])
+  user User @relation(fields: [userId], references: [id])
+}
+
+model PostImpression {
+  id        String   @id @default(auto()) @map("_id") @db.ObjectId
+  postId    String   @db.ObjectId
+  userId    String   @db.ObjectId
+  date      DateTime // store start of day (UTC)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  post Post @relation(fields: [postId], references: [id])
+  user User @relation(fields: [userId], references: [id])
+
+  @@unique([postId, userId, date])
+}
+
 model SocialAccount {
   id           String             @id @default(auto()) @map("_id") @db.ObjectId
   userId       String             @db.ObjectId
@@ -175,10 +259,9 @@ model SocialAccount {
   createdAt    DateTime           @default(now())
   updatedAt    DateTime           @updatedAt
 
-  // Relationships
   user User @relation(fields: [userId], references: [id])
 
-  @@unique([platformType, platformUrl]) // prevent duplicate social accounts
+  @@unique([userId, platformType]) // one platform per user
   @@map("social_accounts")
 }
 

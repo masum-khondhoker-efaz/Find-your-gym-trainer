@@ -5,7 +5,7 @@ import { socialService } from './social.service';
 
 const createSocial = catchAsync(async (req, res) => {
   const user = req.user as any;
-  const result = await socialService.createSocialIntoDb(user.id, req.body);
+  const result = await socialService.createSocialIntoDb(user.id, req.body.platforms);
   sendResponse(res, {
     statusCode: httpStatus.CREATED,
     success: true,

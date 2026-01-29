@@ -17,6 +17,7 @@ import { serviceTypesRoutes } from '../modules/serviceTypes/serviceTypes.routes'
 // import { favoriteProductRoutes } from '../modules/favoriteProduct/favoriteProduct.routes';
 // import { foundingTeamRoutes } from '../modules/foundingTeam/foundingTeam.routes';
 import { adminRoutes } from '../modules/admin/admin.routes';
+import { socialRoutes } from '../modules/social/social.routes';
 // import { contactUsInfoRoutes } from '../modules/contactUsInfo/contactUsInfo.routes';
 // import { newsletterSubscriberRoutes } from '../modules/newsletterSubscriber/newsletterSubscriber.routes';
 // import { supportRoutes } from '../modules/support/support.routes';
@@ -111,6 +112,10 @@ const moduleRoutes = [
     path: '/service-types',
     route: serviceTypesRoutes,
   },
+  {
+    path: '/socials',
+    route: socialRoutes,
+  }
 ];
 
 moduleRoutes.forEach(route => router.use(route.path, route.route));

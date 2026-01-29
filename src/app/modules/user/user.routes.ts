@@ -16,7 +16,7 @@ router.post(
 
 router.post(
   '/trainer-register',
-  multerUploadMultiple.single('certificationDocument'),
+  multerUploadMultiple.single('trainer-certifications'),
   parseBody,
   auth(UserRoleEnum.TRAINER),
   validateRequest(UserValidations.trainerRegisterUser),
@@ -31,6 +31,11 @@ router.put(
 );
 
 router.get('/me', auth(), UserControllers.getMyProfile);
+router.get(
+  '/trainer-profile',
+  auth(UserRoleEnum.TRAINER),
+  UserControllers.getMyTrainerProfile,
+)
 
 router.patch(
   '/update-profile',
@@ -38,6 +43,17 @@ router.patch(
   validateRequest(UserValidations.updateProfileSchema),
   UserControllers.updateMyProfile,
 );
+
+router.patch(
+  '/update-trainer-profile',
+  multerUploadMultiple.any(),
+  parseBody,
+  auth(UserRoleEnum.TRAINER),
+  validateRequest(UserValidations.updateTrainerProfileSchema),
+  UserControllers.updateTrainerProfile,
+);
+
+
 
 // router.put(
 //   '/update-shipping-address',

@@ -40,7 +40,21 @@ const trainerRegisterUser = z.object({
   }),
 });
 
-
+const updateTrainerProfileSchema = z.object({
+  body: z.object({
+    specialtyId: z.string({
+      required_error: 'Specialty ID is required!',
+    }).optional(),
+    experienceYears: z.string({
+      required_error: 'Experience years is required!',
+    }).transform((val) => Number(val)).optional(),
+    trainerServiceType: z.array(
+      z.string({
+        required_error: 'Service type is required!',
+      }),
+    ).optional(),
+  }),
+});
 
 const updateProfileSchema = z.object({
   body: z.object({
@@ -70,33 +84,30 @@ const updateProfileSchema = z.object({
         required_error: 'Address is required!',
       })
       .optional(),
-    companyName: z
+    bio: z
       .string({
-        required_error: 'Company name is required!',
+        required_error: 'Bio is required!',
       })
       .optional(),
-    companyEmail: z
+    gymId: z
       .string({
-        required_error: 'Company email is required!',
-      })
-      .email({
-        message: 'Invalid email format!',
+        required_error: 'Gym ID is required!',
       })
       .optional(),
-    // logo: z
+    gymName: z
+      .string({
+        required_error: 'Gym name is required!',
+      })
+      .optional(),
+    // contactInfo: z
     //   .string({
-    //     required_error: 'Logo is required!',
+    //     required_error: 'Contact info is required!',
     //   })
     //   .optional(),
-    contactInfo: z
-      .string({
-        required_error: 'Contact info is required!',
-      })
-      .optional(),
-    payoutInfo: z
-      .string({
-        required_error: 'Payout info is required!',
-      })
+    fitnessGoals: z
+      .array(z.string({
+        required_error: 'Fitness goals are required!',
+      }))
       .optional(),
   }),
 });
@@ -112,6 +123,12 @@ const updatePasswordSchema = z.object({
       }),
     password: z.string({
       required_error: 'Password is required!',
+    }),
+    otp: z.number({
+      required_error: 'OTP is required!',
+    }),
+    otpToken: z.string({
+      required_error: 'OTP token is required!',
     }),
   }),
 });
@@ -228,4 +245,5 @@ export const UserValidations = {
   socialLoginSchema,
   updateAddressSchema,
   trainerRegisterUser,
+  updateTrainerProfileSchema,
 };

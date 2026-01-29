@@ -7,6 +7,7 @@ import AppError from '../../errors/AppError';
 import { uploadFileToS3 } from '../../utils/multipleFile';
 import { log } from 'node:console';
 import config from '../../../config';
+import { deleteFileFromSpace } from '../../utils/deleteImage';
 
 const registerUser = catchAsync(async (req, res) => {
   const result = await UserServices.registerUserIntoDB(req.body);
@@ -26,11 +27,14 @@ const trainerRegisterUser = catchAsync(async (req, res) => {
       httpStatus.BAD_REQUEST,
       'Certification document file is required.',
     );
-  } 
+  }
   // Upload to DigitalOcean
   const fileUrl = await uploadFileToS3(file, 'trainer-certification-documents');
-  const result = await UserServices.trainerRegisterUserIntoDB(user.id, req.body, fileUrl);
-  
+  const result = await UserServices.trainerRegisterUserIntoDB(
+    user.id,
+    req.body,
+    fileUrl,
+  );
 
   sendResponse(res, {
     statusCode: httpStatus.CREATED,
@@ -38,6 +42,8 @@ const trainerRegisterUser = catchAsync(async (req, res) => {
     data: result,
   });
 });
+
+
 
 const resendUserVerificationEmail = catchAsync(async (req, res) => {
   const { email } = req.body;
@@ -52,25 +58,98 @@ const resendUserVerificationEmail = catchAsync(async (req, res) => {
 const getMyProfile = catchAsync(async (req, res) => {
   const user = req.user as any;
 
-    const result = await UserServices.getMyProfileFromDB(user.id);
+  const result = await UserServices.getMyProfileFromDB(user.id);
 
-    sendResponse(res, {
-      statusCode: httpStatus.OK,
-      message: 'Profile retrieved successfully',
-      data: result,
-    });
+  sendResponse(res, {
+    statusCode: httpStatus.OK,
+    message: 'Profile retrieved successfully',
+    data: result,
+  });
+});
+
+const getMyTrainerProfile = catchAsync(async (req, res) => {
+  const user = req.user as any;
+  const result = await UserServices.getMyTrainerProfileFromDB(user.id);
+  sendResponse(res, {
+    statusCode: httpStatus.OK,
+    message: 'Trainer profile retrieved successfully',
+    data: result,
+  });
 });
 
 const updateMyProfile = catchAsync(async (req, res) => {
   const user = req.user as any;
- 
-    const result = await UserServices.updateMyProfileIntoDB(user.id, req.body);
 
-    sendResponse(res, {
-      statusCode: httpStatus.OK,
-      message: 'User profile updated successfully',
-      data: result,
-    });
+  const result = await UserServices.updateMyProfileIntoDB(user.id, req.body);
+
+  sendResponse(res, {
+    statusCode: httpStatus.OK,
+    message: 'User profile updated successfully',
+    data: result,
+  });
+});
+
+const updateTrainerProfile = catchAsync(async (req, res) => {
+  const user = req.user as any;
+  const files = req.files as Express.Multer.File[]
+  let fileUrl = null;
+
+  if (files && Object.keys(files).length > 0) {
+    
+  const certificationFiles = files.find(f => f.fieldname === 'certifications');
+    const portfolioFiles = files.find(f => f.fieldname === 'portfolio');
+
+    console.log('Received files:', certificationFiles);
+    console.log('Received files:', portfolioFiles);
+
+    // Get existing files for deletion
+    const previousFileUrls = await UserServices.getTrainerProfileFilesForDelete(user.id);
+
+    // Delete previous certification documents from DigitalOcean Spaces
+    if (previousFileUrls.certifications && certificationFiles) {
+      for (const certification of previousFileUrls.certifications) {
+        await deleteFileFromSpace(certification);
+      }
+    }
+
+    // Delete previous portfolio files from DigitalOcean Spaces
+    if (previousFileUrls.portfolio && portfolioFiles) {
+      for (const portfolioFile of previousFileUrls.portfolio) {
+        await deleteFileFromSpace(portfolioFile);
+      }
+    }
+
+    // Upload new certification files
+    const certificationUrls = [];
+    if (certificationFiles) {
+      const url = await uploadFileToS3(certificationFiles, 'trainer-certifications');
+      certificationUrls.push(url);
+    }
+
+    // Upload new portfolio files
+    const portfolioUrls = [];
+    if (portfolioFiles) {
+      const url = await uploadFileToS3(portfolioFiles, 'trainer-portfolio');
+      portfolioUrls.push(url);
+    }
+
+    fileUrl = {
+      certifications: certificationUrls.length > 0 ? certificationUrls : null,
+      portfolio: portfolioUrls.length > 0 ? portfolioUrls : null,
+    };
+  }
+
+  const result = await UserServices.updateTrainerProfileIntoDB(
+    user.id,
+    req.body,
+    fileUrl as any,
+  );
+
+  sendResponse(res, {
+    statusCode: httpStatus.OK,
+    message: 'Trainer profile updated successfully',
+    data: result,
+  });
 });
 
 const changePassword = catchAsync(async (req, res) => {
@@ -104,7 +183,6 @@ const resendOtp = catchAsync(async (req, res) => {
     data: result,
   });
 });
-
 
 const verifyOtp = catchAsync(async (req, res) => {
   const result = await UserServices.verifyOtpInDB(req.body);
@@ -177,20 +255,24 @@ const updateProfileImage = catchAsync(async (req, res) => {
     );
   }
 
+  // Delete previous image from DigitalOcean Spaces
+  const previousImageUrl = await UserServices.getUserProfileImageForDelete(
+    user.id,
+  );
+  if (previousImageUrl) {
+    await deleteFileFromSpace(previousImageUrl);
+  }
+
   // Upload to DigitalOcean
   const fileUrl = await uploadFileToS3(file, 'user-profile-images');
 
-    const result = await UserServices.updateProfileImageIntoDB(
-      user.id,
-      fileUrl,
-    );
+  const result = await UserServices.updateProfileImageIntoDB(user.id, fileUrl);
 
-    sendResponse(res, {
-      statusCode: httpStatus.OK,
-      message: 'Profile image updated successfully',
-      data: result,
-    });
-  
+  sendResponse(res, {
+    statusCode: httpStatus.OK,
+    message: 'Profile image updated successfully',
+    data: result,
+  });
 });
 
 export const UserControllers = {
@@ -208,4 +290,6 @@ export const UserControllers = {
   resendOtp,
   deleteAccount,
   updateProfileImage,
+  updateTrainerProfile,
+  getMyTrainerProfile
 };
