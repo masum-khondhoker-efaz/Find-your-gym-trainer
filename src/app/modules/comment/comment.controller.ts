@@ -17,7 +17,10 @@ const createComment = catchAsync(async (req, res) => {
 const getCommentList = catchAsync(async (req, res) => {
   const user = req.user as any;
   const { postId } = req.query;
-  const result = await commentService.getCommentListFromDb(user.id, postId as string);
+  const result = await commentService.getCommentListFromDb(
+    user.id,
+    postId as string,
+  );
   sendResponse(res, {
     statusCode: httpStatus.OK,
     success: true,
@@ -28,7 +31,10 @@ const getCommentList = catchAsync(async (req, res) => {
 
 const getCommentById = catchAsync(async (req, res) => {
   const user = req.user as any;
-  const result = await commentService.getCommentByIdFromDb(user.id, req.params.id);
+  const result = await commentService.getCommentByIdFromDb(
+    user.id,
+    req.params.id,
+  );
   sendResponse(res, {
     statusCode: httpStatus.OK,
     success: true,
@@ -39,7 +45,11 @@ const getCommentById = catchAsync(async (req, res) => {
 
 const updateComment = catchAsync(async (req, res) => {
   const user = req.user as any;
-  const result = await commentService.updateCommentIntoDb(user.id, req.params.id, req.body);
+  const result = await commentService.updateCommentIntoDb(
+    user.id,
+    req.params.id,
+    req.body,
+  );
   sendResponse(res, {
     statusCode: httpStatus.OK,
     success: true,
@@ -50,7 +60,11 @@ const updateComment = catchAsync(async (req, res) => {
 
 const deleteComment = catchAsync(async (req, res) => {
   const user = req.user as any;
-  const result = await commentService.deleteCommentItemFromDb(user.id, req.params.id);
+  const result = await commentService.deleteCommentItemFromDb(
+    user.id,
+    req.params.postId,
+    req.params.commentId,
+  );
   sendResponse(res, {
     statusCode: httpStatus.OK,
     success: true,

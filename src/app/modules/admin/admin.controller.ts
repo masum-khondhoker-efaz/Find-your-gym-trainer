@@ -54,6 +54,18 @@ const getAllTrainers = catchAsync(async (req, res) => {
   });
 });
 
+const getAllPosts = catchAsync(async (req, res) => {
+  const user = req.user as any;
+  const result = await adminService.getAllPostsFromDb(user.id, req.query as ISearchAndFilterOptions);
+  sendResponse(res, {
+    statusCode: httpStatus.OK,
+    success: true,
+    message: 'Post list retrieved successfully',
+    data: result.data,
+    meta: result.meta,
+  });
+});
+
 const getAllProducts = catchAsync(async (req, res) => {
   const user = req.user as any;
   const result = await adminService.getAllProductsFromDb(user.id, req.query as ISearchAndFilterOptions);
@@ -154,6 +166,20 @@ const updateUserStatus = catchAsync(async (req, res) => {
   });
 });
 
+const updatePostStatus = catchAsync(async (req, res) => {
+  const user = req.user as any;
+  const result = await adminService.updatePostStatusIntoDb(
+    user.id,
+    req.params.id,
+  );
+  sendResponse(res, {
+    statusCode: httpStatus.OK,
+    success: true,
+    message: 'Post status updated successfully',
+    data: result,
+  });
+});
+
 const deleteAdmin = catchAsync(async (req, res) => {
   const user = req.user as any;
   const result = await adminService.deleteAdminItemFromDb(
@@ -173,6 +199,7 @@ export const adminController = {
   getAllUsers,
   getAUser,
   getAllTrainers,
+  getAllPosts,
   getAllProducts,
   updateProductVisibility,
   updateTrainerStatus,
@@ -181,5 +208,6 @@ export const adminController = {
   getAOrder,
   getAllNewsletterSubscribers,
   updateUserStatus,
+  updatePostStatus,
   deleteAdmin,
 };

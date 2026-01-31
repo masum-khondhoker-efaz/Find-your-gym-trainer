@@ -16,6 +16,21 @@ const createCommentIntoDb = async (userId: string, data: any) => {
     throw new AppError(httpStatus.NOT_FOUND, 'Post not found');
   }
 
+  // Check if user has any engagement on this post
+  const userLikes = await prisma.like.findFirst({
+    where: { postId, userId },
+  });
+
+  const userComments = await prisma.comment.findFirst({
+    where: { postId, userId },
+  });
+
+  const userShares = await prisma.share.findFirst({
+    where: { postId, userId },
+  });
+
+  const isFirstEngagement = !userLikes && !userComments && !userShares;
+
   const result = await prisma.comment.create({
     data: {
       postId,
@@ -23,7 +38,15 @@ const createCommentIntoDb = async (userId: string, data: any) => {
       text,
     },
     include: {
-      user: true,
+      user: {
+        select: {
+          id: true,
+          fullName: true,
+          email: true,
+          image: true,
+          role: true,
+        },
+      },
     },
   });
 
@@ -31,10 +54,38 @@ const createCommentIntoDb = async (userId: string, data: any) => {
     throw new AppError(httpStatus.BAD_REQUEST, 'Comment not created');
   }
 
-  // Increment post commentCount
+  // Weight for comment = 2
+  const commentWeight = 2;
+
+  // Increment post metrics
   await prisma.post.update({
     where: { id: postId },
-    data: { commentCount: { increment: 1 } },
+    data: {
+      commentCount: { increment: 1 },
+      impressionCount: { increment: 1 },
+      engagementCount: { increment: commentWeight },
+      reachCount: isFirstEngagement ? { increment: 1 } : undefined,
+    },
+  });
+
+  // Track impression (one per user per post per day)
+  const today = new Date();
+  today.setUTCHours(0, 0, 0, 0);
+
+  await prisma.postImpression.upsert({
+    where: {
+      postId_userId_date: {
+        postId,
+        userId,
+        date: today,
+      },
+    },
+    create: {
+      postId,
+      userId,
+      date: today,
+    },
+    update: {}, // No update needed, just ensure it exists
   });
 
   return result;
@@ -118,10 +169,11 @@ const updateCommentIntoDb = async (userId: string, commentId: string, data: any)
   return result;
 };
 
-const deleteCommentItemFromDb = async (userId: string, commentId: string) => {
+const deleteCommentItemFromDb = async (userId: string, postId: string, commentId: string) => {
   const comment = await prisma.comment.findUnique({
     where: {
       id: commentId,
+      postId: postId,
     },
   });
 
@@ -137,6 +189,7 @@ const deleteCommentItemFromDb = async (userId: string, commentId: string) => {
   const deletedItem = await prisma.comment.delete({
     where: {
       id: commentId,
+      postId: postId,
     },
   });
 
@@ -144,10 +197,29 @@ const deleteCommentItemFromDb = async (userId: string, commentId: string) => {
     throw new AppError(httpStatus.BAD_REQUEST, 'Comment not deleted');
   }
 
-  // Decrement post commentCount
+  // Check if user has any remaining engagement on this post
+  const userLikes = await prisma.like.findFirst({
+    where: { postId: postId, userId },
+  });
+
+  const userShares = await prisma.share.findFirst({
+    where: { postId: postId, userId },
+  });
+
+  const hasRemainingEngagement = !!userLikes || !!userShares;
+
+  // Weight for comment = 2
+  const commentWeight = 2;
+
+  // Decrement post metrics
   await prisma.post.update({
-    where: { id: comment.postId },
-    data: { commentCount: { decrement: 1 } },
+    where: { id: postId },
+    data: {
+      commentCount: { decrement: 1 },
+      impressionCount: { decrement: 1 },
+      engagementCount: { decrement: commentWeight },
+      reachCount: !hasRemainingEngagement ? { decrement: 1 } : undefined,
+    },
   });
 
   return deletedItem;

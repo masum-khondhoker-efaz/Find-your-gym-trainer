@@ -31,6 +31,12 @@ router.get(
 );
 
 router.get(
+  '/posts',
+  auth(UserRoleEnum.SUPER_ADMIN, UserRoleEnum.ADMIN),
+  adminController.getAllPosts,
+)
+
+router.get(
   '/products',
   auth(UserRoleEnum.SUPER_ADMIN, UserRoleEnum.ADMIN),
   adminController.getAllProducts,
@@ -54,6 +60,7 @@ router.get(
   auth(UserRoleEnum.SUPER_ADMIN, UserRoleEnum.ADMIN),
   adminController.getATrainer,
 );
+
 router.get(
   '/orders',
   auth(UserRoleEnum.SUPER_ADMIN, UserRoleEnum.ADMIN),
@@ -75,6 +82,12 @@ router.patch(
   '/users/:id',
   auth(UserRoleEnum.SUPER_ADMIN, UserRoleEnum.ADMIN),
   adminController.updateUserStatus,
+);
+
+router.patch(
+  '/posts/:id',
+  auth(UserRoleEnum.SUPER_ADMIN, UserRoleEnum.ADMIN),
+  adminController.updatePostStatus,
 );
 
 router.delete('/:id', auth(), adminController.deleteAdmin);

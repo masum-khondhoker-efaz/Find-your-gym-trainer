@@ -39,7 +39,7 @@ const getShareById = catchAsync(async (req, res) => {
 
 const deleteShare = catchAsync(async (req, res) => {
   const user = req.user as any;
-  const result = await shareService.deleteShareItemFromDb(user.id, req.params.id);
+  const result = await shareService.deleteShareItemFromDb(user.id, req.params.postId, req.params.shareId);
   sendResponse(res, {
     statusCode: httpStatus.OK,
     success: true,

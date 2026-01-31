@@ -26,9 +26,52 @@ const createLikeIntoDb = async (userId: string, data: any) => {
     },
   });
 
+  // If already liked, toggle it off (unlike)
   if (existingLike) {
-    throw new AppError(httpStatus.CONFLICT, 'Post already liked');
+    await prisma.like.delete({
+      where: {
+        id: existingLike.id,
+      },
+    });
+
+    // Check if user has any remaining engagement on this post
+    const userComments = await prisma.comment.findFirst({
+      where: { postId, userId },
+    });
+
+    const userShares = await prisma.share.findFirst({
+      where: { postId, userId },
+    });
+
+    const hasRemainingEngagement = !!userComments || !!userShares;
+
+    // Weight for like = 1
+    const likeWeight = 1;
+
+    // Decrement post metrics
+    await prisma.post.update({
+      where: { id: postId },
+      data: {
+        likeCount: { decrement: 1 },
+        impressionCount: { decrement: 1 },
+        engagementCount: { decrement: likeWeight },
+        reachCount: !hasRemainingEngagement ? { decrement: 1 } : undefined,
+      },
+    });
+
+    return { message: 'Post unliked', liked: false };
   }
+
+  // If not liked, create the like
+  const userComments = await prisma.comment.findFirst({
+    where: { postId, userId },
+  });
+
+  const userShares = await prisma.share.findFirst({
+    where: { postId, userId },
+  });
+
+  const isFirstEngagement = !userComments && !userShares;
 
   const result = await prisma.like.create({
     data: {
@@ -41,13 +84,41 @@ const createLikeIntoDb = async (userId: string, data: any) => {
     throw new AppError(httpStatus.BAD_REQUEST, 'Like not created');
   }
 
-  // Increment post likeCount
+  // Weight for like = 1
+  const likeWeight = 1;
+
+  // Increment post metrics
   await prisma.post.update({
     where: { id: postId },
-    data: { likeCount: { increment: 1 } },
+    data: {
+      likeCount: { increment: 1 },
+      impressionCount: { increment: 1 },
+      engagementCount: { increment: likeWeight },
+      reachCount: isFirstEngagement ? { increment: 1 } : undefined,
+    },
   });
 
-  return result;
+  // Track impression (one per user per post per day)
+  const today = new Date();
+  today.setUTCHours(0, 0, 0, 0);
+
+  await prisma.postImpression.upsert({
+    where: {
+      postId_userId_date: {
+        postId,
+        userId,
+        date: today,
+      },
+    },
+    create: {
+      postId,
+      userId,
+      date: today,
+    },
+    update: {}, // No update needed, just ensure it exists
+  });
+
+  return { ...result, liked: true };
 };
 
 const getLikeListFromDb = async (userId: string, postId?: string) => {
@@ -123,10 +194,29 @@ const deleteLikeItemFromDb = async (userId: string, likeId: string) => {
     throw new AppError(httpStatus.BAD_REQUEST, 'Like not deleted');
   }
 
-  // Decrement post likeCount
+  // Check if user has any remaining engagement on this post
+  const userComments = await prisma.comment.findFirst({
+    where: { postId: like.postId, userId },
+  });
+
+  const userShares = await prisma.share.findFirst({
+    where: { postId: like.postId, userId },
+  });
+
+  const hasRemainingEngagement = !!userComments || !!userShares;
+
+  // Weight for like = 1
+  const likeWeight = 1;
+
+  // Decrement post metrics
   await prisma.post.update({
     where: { id: like.postId },
-    data: { likeCount: { decrement: 1 } },
+    data: {
+      likeCount: { decrement: 1 },
+      impressionCount: { decrement: 1 },
+      engagementCount: { decrement: likeWeight },
+      reachCount: !hasRemainingEngagement ? { decrement: 1 } : undefined,
+    },
   });
 
   return deletedItem;

@@ -43,7 +43,7 @@ const deleteLike = catchAsync(async (req, res) => {
   sendResponse(res, {
     statusCode: httpStatus.OK,
     success: true,
-    message: 'Post unliked successfully',
+    message: 'Post disliked successfully',
     data: result,
   });
 });

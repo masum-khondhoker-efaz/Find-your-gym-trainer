@@ -16,16 +16,45 @@ const createShareIntoDb = async (userId: string, data: any) => {
     throw new AppError(httpStatus.NOT_FOUND, 'Post not found');
   }
 
+  // Check if user has any engagement on this post
+  const userLikes = await prisma.like.findFirst({
+    where: { postId, userId },
+  });
+
+  const userComments = await prisma.comment.findFirst({
+    where: { postId, userId },
+  });
+
+  const userShares = await prisma.share.findFirst({
+    where: { postId, userId },
+  });
+
+  const isFirstEngagement = !userLikes && !userComments && !userShares;
+
   const result = await prisma.share.create({
     data: {
       postId,
       userId,
     },
     include: {
-      user: true,
+      user: {
+        select: {
+          id: true,
+          fullName: true,
+          email: true,
+          image: true,
+        },
+      },
       post: {
         include: {
-          user: true,
+          user: {
+            select: {
+              id: true,
+              fullName: true,
+              email: true,
+              image: true,
+            },
+          },
         },
       },
     },
@@ -35,10 +64,38 @@ const createShareIntoDb = async (userId: string, data: any) => {
     throw new AppError(httpStatus.BAD_REQUEST, 'Post not shared');
   }
 
-  // Increment post shareCount
+  // Weight for share = 5
+  const shareWeight = 5;
+
+  // Increment post metrics
   await prisma.post.update({
     where: { id: postId },
-    data: { shareCount: { increment: 1 } },
+    data: {
+      shareCount: { increment: 1 },
+      impressionCount: { increment: 1 },
+      engagementCount: { increment: shareWeight },
+      reachCount: isFirstEngagement ? { increment: 1 } : undefined,
+    },
+  });
+
+  // Track impression (one per user per post per day)
+  const today = new Date();
+  today.setUTCHours(0, 0, 0, 0);
+
+  await prisma.postImpression.upsert({
+    where: {
+      postId_userId_date: {
+        postId,
+        userId,
+        date: today,
+      },
+    },
+    create: {
+      postId,
+      userId,
+      date: today,
+    },
+    update: {}, // No update needed, just ensure it exists
   });
 
   return result;
@@ -97,10 +154,16 @@ const getShareByIdFromDb = async (userId: string, shareId: string) => {
   return result;
 };
 
-const deleteShareItemFromDb = async (userId: string, shareId: string) => {
+const deleteShareItemFromDb = async (
+  userId: string,
+  postId: string,
+  shareId: string,
+) => {
   const share = await prisma.share.findUnique({
     where: {
       id: shareId,
+      postId: postId,
+      userId: userId,
     },
   });
 
@@ -116,6 +179,8 @@ const deleteShareItemFromDb = async (userId: string, shareId: string) => {
   const deletedItem = await prisma.share.delete({
     where: {
       id: shareId,
+      postId: postId,
+      userId: userId,
     },
   });
 
@@ -123,10 +188,29 @@ const deleteShareItemFromDb = async (userId: string, shareId: string) => {
     throw new AppError(httpStatus.BAD_REQUEST, 'Share not deleted');
   }
 
-  // Decrement post shareCount
+  // Check if user has any remaining engagement on this post
+  const userLikes = await prisma.like.findFirst({
+    where: { postId: postId, userId },
+  });
+
+  const userComments = await prisma.comment.findFirst({
+    where: { postId: postId, userId },
+  });
+
+  const hasRemainingEngagement = !!userLikes || !!userComments;
+
+  // Weight for share = 5
+  const shareWeight = 5;
+
+  // Decrement post metrics
   await prisma.post.update({
     where: { id: share.postId },
-    data: { shareCount: { decrement: 1 } },
+    data: {
+      shareCount: { decrement: 1 },
+      impressionCount: { decrement: 1 },
+      engagementCount: { decrement: shareWeight },
+      reachCount: !hasRemainingEngagement ? { decrement: 1 } : undefined,
+    },
   });
 
   return deletedItem;

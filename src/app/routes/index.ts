@@ -18,6 +18,10 @@ import { serviceTypesRoutes } from '../modules/serviceTypes/serviceTypes.routes'
 // import { foundingTeamRoutes } from '../modules/foundingTeam/foundingTeam.routes';
 import { adminRoutes } from '../modules/admin/admin.routes';
 import { socialRoutes } from '../modules/social/social.routes';
+import { postRoutes } from '../modules/post/post.routes';
+import { likeRoutes } from '../modules/like/like.routes';
+import { commentRoutes } from '../modules/comment/comment.routes';
+import { shareRoutes } from '../modules/share/share.routes';
 // import { contactUsInfoRoutes } from '../modules/contactUsInfo/contactUsInfo.routes';
 // import { newsletterSubscriberRoutes } from '../modules/newsletterSubscriber/newsletterSubscriber.routes';
 // import { supportRoutes } from '../modules/support/support.routes';
@@ -115,7 +119,24 @@ const moduleRoutes = [
   {
     path: '/socials',
     route: socialRoutes,
-  }
+  },
+  {
+    path: '/posts',
+    route: postRoutes,
+  },
+  {
+    path: '/likes',
+    route: likeRoutes,
+  },
+  {
+    path: '/comments',
+    route: commentRoutes,
+  },
+  {
+    path: '/shares',
+    route: shareRoutes,
+  },
+  
 ];
 
 moduleRoutes.forEach(route => router.use(route.path, route.route));

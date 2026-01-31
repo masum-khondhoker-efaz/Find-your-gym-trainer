@@ -567,6 +567,78 @@ const getAllTrainersFromDb = async (
   return formatPaginationResponse(trainers, total, page, limit);
 };
 
+const getAllPostsFromDb = async (
+  userId: string,
+  options: ISearchAndFilterOptions,
+) => {
+  // Calculate pagination values
+  const { page, limit, skip, sortBy, sortOrder } = calculatePagination(options);
+  // Build search query for searchable fields
+  const searchFields = ['content'];
+  const searchQuery = buildSearchQuery({
+    searchTerm: options.searchTerm,
+    searchFields,
+  });
+  // Build filter query
+  const filterFields: Record<string, any> = {
+    ...(options.content && {
+      content: {
+        contains: options.content,
+        mode: 'insensitive' as const,
+      },
+    }),
+  };
+  const filterQuery = buildFilterQuery(filterFields);
+  // Date range filtering
+  const dateQuery = buildDateRangeQuery({
+    startDate: options.startDate,
+    endDate: options.endDate,
+    dateField: 'createdAt',
+  });
+  // Base query to fetch all posts
+  const baseQuery = {};
+  // Combine all queries
+  const whereQuery = combineQueries(
+    baseQuery,
+    searchQuery,
+    filterQuery,
+    dateQuery,
+  );
+  // Sorting
+  const orderBy = getPaginationQuery(sortBy, sortOrder).orderBy;
+  // Fetch total count for pagination
+  const total = await prisma.post.count({ where: whereQuery });
+  // Fetch paginated data
+  const posts = await prisma.post.findMany({
+    where: whereQuery,
+    skip,
+    take: limit,
+    orderBy,
+    select: {
+      id: true,
+      content: true,
+      image: true,
+      impressionCount: true,
+      likeCount: true,
+      commentCount: true,
+      shareCount: true,
+      isPublished: true,
+      createdAt: true,
+      updatedAt: true,
+      user: {
+        select: {
+          id: true,
+          fullName: true,
+          email: true,
+          image: true,
+        },
+      },
+    },
+  });
+  return formatPaginationResponse(posts, total, page, limit);
+};
+
+
 const getAllProductsFromDb = async (
   userId: string,
   options: ISearchAndFilterOptions,
@@ -931,6 +1003,25 @@ const updateUserStatusIntoDb = async (userId: string) => {
   return updatedUser;
 };
 
+const updatePostStatusIntoDb = async (userId: string, postId: string) => {
+  const post = await prisma.post.findUnique({
+    where: { id: postId },
+  });
+  if (!post) {
+    throw new AppError(httpStatus.NOT_FOUND, 'Post not found');
+  }
+
+  // Toggle the isPublished status (true -> false, false -> true)
+  const updatedPost = await prisma.post.update({
+    where: { id: postId },
+    data: { isPublished: !post.isPublished },
+  });
+  if (!updatedPost) {
+    throw new AppError(httpStatus.BAD_REQUEST, 'Failed to update post status');
+  }
+  return updatedPost;
+};
+
 const deleteAdminItemFromDb = async (userId: string, adminId: string) => {
   const deletedItem = await prisma.admin.delete({
     where: {
@@ -950,6 +1041,7 @@ export const adminService = {
   getAllUsersFromDb,
   getAUsersFromDb,
   getAllTrainersFromDb,
+  getAllPostsFromDb,
   getAllProductsFromDb,
   updateProductVisibilityIntoDb,
   updateTrainerStatusIntoDb,
@@ -958,5 +1050,6 @@ export const adminService = {
   getAOrderFromDb,
   getAllNewsletterSubscribersFromDb,
   updateUserStatusIntoDb,
+  updatePostStatusIntoDb,
   deleteAdminItemFromDb,
 };

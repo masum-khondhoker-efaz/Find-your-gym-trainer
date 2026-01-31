@@ -59,8 +59,7 @@ export interface ISearchAndFilterOptions extends IPaginationOptions {
   // Product-related filters
   productName?: string;
   description?: string;
-  sellerId?: string;
-  sellerCompanyName?: string;
+  content?: string;
   priceRange?: 'low' | 'medium' | 'high';
   stockMin?: number;
   stockMax?: number;
