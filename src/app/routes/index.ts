@@ -1,7 +1,6 @@
 import express from 'express';
 import { UserRouters } from '../modules/user/user.routes';
 import { AuthRouters } from '../modules/auth/auth.routes';
-import { path } from 'pdfkit';
 import { specialtiesRoutes } from '../modules/specialties/specialties.routes';
 import { serviceTypesRoutes } from '../modules/serviceTypes/serviceTypes.routes';
 // import { termAndConditionRoutes } from '../modules/termAndCondition/termAndCondition.routes';
@@ -22,6 +21,11 @@ import { postRoutes } from '../modules/post/post.routes';
 import { likeRoutes } from '../modules/like/like.routes';
 import { commentRoutes } from '../modules/comment/comment.routes';
 import { shareRoutes } from '../modules/share/share.routes';
+import { productRoutes } from '../modules/product/product.routes';
+import { path } from 'pdfkit';
+import { trainersRoutes } from '../modules/trainers/trainers.routes';
+import { favoriteTrainerRoutes } from '../modules/favoriteTrainer/favoriteTrainer.routes';
+import { favoriteProductRoutes } from '../modules/favoriteProduct/favoriteProduct.routes';
 // import { contactUsInfoRoutes } from '../modules/contactUsInfo/contactUsInfo.routes';
 // import { newsletterSubscriberRoutes } from '../modules/newsletterSubscriber/newsletterSubscriber.routes';
 // import { supportRoutes } from '../modules/support/support.routes';
@@ -48,10 +52,10 @@ const moduleRoutes = [
   //   path: '/notifications',
   //   route: NotificationRoutes,
   // },
-  // {
-  //   path: '/products',
-  //   route: productRoutes,
-  // },
+  {
+    path: '/products',
+    route: productRoutes,
+  },
   // {
   //   path: '/terms-&-conditions',
   //   route: termAndConditionRoutes,
@@ -84,10 +88,15 @@ const moduleRoutes = [
   //   path: '/car-brands',
   //   route: carBrandRoutes,
   // },
-  // {
-  //   path: '/favorite-products',
-  //   route: favoriteProductRoutes,
-  // },
+  {
+    path: '/favorite-products',
+    route: favoriteProductRoutes,
+  },
+  {
+    path: '/favorite-trainers',
+    route: favoriteTrainerRoutes,
+  },
+
   // {
   //   path: '/founding-teams',
   //   route: foundingTeamRoutes,
@@ -136,6 +145,11 @@ const moduleRoutes = [
     path: '/shares',
     route: shareRoutes,
   },
+  {
+    path: '/trainers',
+    route: trainersRoutes,
+  },
+  
   
 ];
 

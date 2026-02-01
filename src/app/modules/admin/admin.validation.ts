@@ -24,8 +24,8 @@ const updateTrainerStatusSchema = z.object({
 
 const updateProductVisibilitySchema = z.object({
   body: z.object({
-    isVisible: z.boolean({
-      required_error: 'isVisible status is required',
+    isActive: z.boolean({
+      required_error: 'isActive status is required',
     }),
   }),
 });

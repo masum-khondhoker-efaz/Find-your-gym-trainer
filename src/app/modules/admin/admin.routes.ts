@@ -45,7 +45,7 @@ router.get(
 router.patch(
   '/products/:id',
   auth(UserRoleEnum.SUPER_ADMIN, UserRoleEnum.ADMIN),
-  validateRequest(adminValidation.updateProductVisibilitySchema),
+  // validateRequest(adminValidation.updateProductVisibilitySchema),
   adminController.updateProductVisibility,
 )
 

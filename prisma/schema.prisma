@@ -17,6 +17,8 @@ model User {
   isVerified                 Boolean       @default(false)
   isProfileComplete          Boolean       @default(false)
   address                    String?
+  latitude                   Float?
+  longitude                  Float?
   isLoggedIn                 Boolean       @default(false)
   bio                        String?
   gymId                      String?
@@ -60,6 +62,8 @@ model User {
   comments         Comment[]
   shares           Share[]
   postImpressions  PostImpression[]
+  products         Product[]
+  favoriteTrainers FavoriteTrainer[]
 
   @@map("users")
 }
@@ -87,6 +91,9 @@ model Trainer {
   certifications  String[]
   experienceYears Int
   totalReferrals  Int      @default(0)
+  views           Int      @default(0)
+  ratingCount     Int      @default(0)
+  avgRating       Float    @default(0)
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
 
@@ -94,6 +101,7 @@ model Trainer {
   user                User                 @relation(fields: [userId], references: [id])
   specialty           Specialties?         @relation(fields: [specialtyId], references: [id])
   trainerServiceTypes TrainerServiceType[]
+  favoriteTrainer     FavoriteTrainer[]
 
   @@map("trainers")
 }
@@ -213,6 +221,7 @@ model Like {
   updatedAt DateTime @updatedAt
 
   @@unique([postId, userId]) // one like per user per post
+  @@map("likes")
 }
 
 model Comment {
@@ -225,6 +234,8 @@ model Comment {
 
   post Post @relation(fields: [postId], references: [id])
   user User @relation(fields: [userId], references: [id])
+
+  @@map("comments")
 }
 
 model Share {
@@ -236,6 +247,8 @@ model Share {
 
   post Post @relation(fields: [postId], references: [id])
   user User @relation(fields: [userId], references: [id])
+
+  @@map("shares")
 }
 
 model PostImpression {
@@ -250,6 +263,7 @@ model PostImpression {
   user User @relation(fields: [userId], references: [id])
 
   @@unique([postId, userId, date])
+  @@map("post_impressions")
 }
 
 model SocialAccount {
@@ -283,18 +297,33 @@ model Category {
 }
 
 model Product {
-  id            String   @id @default(auto()) @map("_id") @db.ObjectId
-  userId        String   @db.ObjectId
-  categoryId    String?  @db.ObjectId
-  productName   String
-  productImages String[]
-  productVideo  String?
-  price         Float
-  discount      Float    @default(0)
+  id              String   @id @default(auto()) @map("_id") @db.ObjectId
+  userId          String   @db.ObjectId
+  productName     String
+  productImage    String
+  productVideo    String?
+  week            Int
+  maxDiscountUser Int?
+  agreement       String?
+  pdf             String?
+  isActive        Boolean  @default(false)
+  price           Float
+  capacity        Int?
+  discount        Float    @default(0)
+  ratingCount     Int      @default(0)
+  avgRating       Float    @default(0)
+  totalPurchased  Int      @default(0)
+  views           Int      @default(0)
+  description     String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
 
-  description String?
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  // Relationships
+  user             User              @relation(fields: [userId], references: [id])
+  reviews          Review[]
+  favoriteProducts FavoriteProduct[]
+
+  @@map("products")
 }
 
 model DeletedProduct {
@@ -302,7 +331,6 @@ model DeletedProduct {
   productId     String?  @db.ObjectId
   sellerId      String   @db.ObjectId
   categoryId    String?  @db.ObjectId
-  brandId       String?  @db.ObjectId
   productName   String
   productImages String[]
   description   String?
@@ -326,10 +354,26 @@ model FavoriteProduct {
   updatedAt DateTime @updatedAt
 
   // Relationships
-  user User @relation(fields: [userId], references: [id])
+  user    User    @relation(fields: [userId], references: [id])
+  product Product @relation(fields: [productId], references: [id])
 
   @@unique([userId, productId]) // prevent duplicate favorites
   @@map("favorite_products")
+}
+
+model FavoriteTrainer {
+  id        String   @id @default(auto()) @map("_id") @db.ObjectId
+  userId    String   @db.ObjectId
+  trainerId String   @db.ObjectId
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Relationships
+  user      User     @relation(fields: [userId], references: [id])
+  trainer   Trainer  @relation(fields: [trainerId], references: [userId])
+
+  @@unique([userId, trainerId]) // prevent duplicate favorites
+  @@map("favorite_trainers")
 }
 
 model Notification {
@@ -377,7 +421,8 @@ model Review {
   updatedAt DateTime @updatedAt
 
   // Relationships
-  user User @relation(fields: [userId], references: [id])
+  user    User    @relation(fields: [userId], references: [id])
+  product Product @relation(fields: [productId], references: [id])
 
   @@map("reviews")
 }

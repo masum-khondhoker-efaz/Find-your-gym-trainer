@@ -18,20 +18,21 @@ const registerUser = z.object({
       required_error: 'Password is required!',
     }),
     role: z.enum(['MEMBER', 'TRAINER'], {
-      required_error: 'Role is required!',  
+      required_error: 'Role is required!',
     }),
   }),
 });
-
 
 const trainerRegisterUser = z.object({
   body: z.object({
     specialtyId: z.string({
       required_error: 'Specialty ID is required!',
     }),
-    experienceYears: z.string({
-      required_error: 'Experience years is required!',
-    }).transform((val) => Number(val)),
+    experienceYears: z
+      .string({
+        required_error: 'Experience years is required!',
+      })
+      .transform(val => Number(val)),
     trainerServiceType: z.array(
       z.string({
         required_error: 'Service type is required!',
@@ -42,17 +43,24 @@ const trainerRegisterUser = z.object({
 
 const updateTrainerProfileSchema = z.object({
   body: z.object({
-    specialtyId: z.string({
-      required_error: 'Specialty ID is required!',
-    }).optional(),
-    experienceYears: z.string({
-      required_error: 'Experience years is required!',
-    }).transform((val) => Number(val)).optional(),
-    trainerServiceType: z.array(
-      z.string({
-        required_error: 'Service type is required!',
-      }),
-    ).optional(),
+    specialtyId: z
+      .string({
+        required_error: 'Specialty ID is required!',
+      })
+      .optional(),
+    experienceYears: z
+      .string({
+        required_error: 'Experience years is required!',
+      })
+      .transform(val => Number(val))
+      .optional(),
+    trainerServiceType: z
+      .array(
+        z.string({
+          required_error: 'Service type is required!',
+        }),
+      )
+      .optional(),
   }),
 });
 
@@ -105,9 +113,23 @@ const updateProfileSchema = z.object({
     //   })
     //   .optional(),
     fitnessGoals: z
-      .array(z.string({
-        required_error: 'Fitness goals are required!',
-      }))
+      .array(
+        z.string({
+          required_error: 'Fitness goals are required!',
+        }),
+      )
+      .optional(),
+    latitude: z
+      .string({
+        required_error: 'Latitude is required!',
+      })
+      .transform(val => Number(val))
+      .optional(),
+    longitude: z
+      .string({
+        required_error: 'Longitude is required!',
+      })
+      .transform(val => Number(val))
       .optional(),
   }),
 });
@@ -191,9 +213,11 @@ const socialLoginSchema = z.object({
     fullName: z.string({
       required_error: 'name is required!',
     }),
-    fcmToken: z.string({
-      required_error: 'Fcm token is required!',
-    }).optional(),
+    fcmToken: z
+      .string({
+        required_error: 'Fcm token is required!',
+      })
+      .optional(),
     phoneNumber: z
       .string({
         required_error: 'Phone number is required!',
@@ -206,8 +230,6 @@ const socialLoginSchema = z.object({
     address: z.string().optional(),
   }),
 });
-
-
 
 const updateAddressSchema = z.object({
   body: z.object({

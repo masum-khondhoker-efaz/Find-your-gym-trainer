@@ -29,13 +29,18 @@ export interface ISearchAndFilterOptions extends IPaginationOptions {
   searchTerm?: string;
   searchFields?: string[];
   filters?: Record<string, any>;
+  offset?: number;
 
   categoryName?: string;
+  latitude?: number;
+  longitude?: number;
+  distanceInKm?: number;
   priceMin?: number;
   priceMax?: number;
   discountPriceMin?: number;
   discountPriceMax?: number;
   rating?: number;
+  isActive?: boolean | string;
 
   // User-related filters
   userStatus?: string;
@@ -43,8 +48,8 @@ export interface ISearchAndFilterOptions extends IPaginationOptions {
   email?: string;
   phoneNumber?: string;
   address?: string;
-  startDate?: string;
-  endDate?: string;
+  week?: number;
+  trainerName?: string;
   isProfileComplete?: boolean | string;
 
   // Trainer-related filters
@@ -52,7 +57,7 @@ export interface ISearchAndFilterOptions extends IPaginationOptions {
   experienceYears?: number;
   trainerServiceType?: string;
   serviceName?: string;
- 
+  trainerServiceTypes?: string;
 
   // Category-related filters
   name?: string;
@@ -61,9 +66,7 @@ export interface ISearchAndFilterOptions extends IPaginationOptions {
   description?: string;
   content?: string;
   priceRange?: 'low' | 'medium' | 'high';
-  stockMin?: number;
-  stockMax?: number;
-  isVisible?: boolean | string;
+
 
   // Founding Team-related filters
   memberName?: string;

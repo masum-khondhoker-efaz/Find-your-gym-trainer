@@ -83,7 +83,6 @@ const updateProductVisibility = catchAsync(async (req, res) => {
   const result = await adminService.updateProductVisibilityIntoDb(
     user.id,
     req.params.id,
-    req.body,
   );
   sendResponse(res, {
     statusCode: httpStatus.OK,

@@ -27,34 +27,15 @@ const getDashboardStatsFromDb = async (
   // totals for users/sellers remain global (no year split requested)
   const totalUsers = await prisma.user.count({
     where: {
-      roles: {
-        some: {
-          role: {
-            is: {
-              name: UserRoleEnum.BUYER,
-            },
-          },
-        },
-      },
       status: UserStatus.ACTIVE,
     },
   });
 
-  const totalSellers = await prisma.user.count({
+  const totalTrainers = await prisma.user.count({
     where: {
-      roles: {
-        some: {
-          role: {
-            is: {
-              name: UserRoleEnum.SELLER,
-            },
-          },
-        },
-      },
+      role: UserRoleEnum.TRAINER,
       status: UserStatus.ACTIVE,
-      sellerProfile: {
-        isNot: null,
-      },
+      isVerified: true,
     },
   });
 
@@ -131,15 +112,6 @@ const getDashboardStatsFromDb = async (
     },
     select: {
       createdAt: true,
-      roles: {
-        select: {
-          role: {
-            select: {
-              name: true,
-            },
-          },
-        },
-      },
     },
     orderBy: { createdAt: 'asc' as const },
   });
@@ -219,7 +191,7 @@ const getDashboardStatsFromDb = async (
   const userGrowthByMonth: { month: string; role: string; count: number }[] =
     [];
   monthsUsers.forEach(month => {
-    [UserRoleEnum.BUYER, UserRoleEnum.SELLER].forEach(role => {
+    [UserRoleEnum.MEMBER, UserRoleEnum.TRAINER].forEach(role => {
       const count = recentUsers.filter(
         u =>
           u.roles.some(r => r.role?.name === role) &&
@@ -236,7 +208,7 @@ const getDashboardStatsFromDb = async (
 
   return {
     totalUsers,
-    totalSellers,
+    totalTrainers,
     totalEarnings: totalEarnings._sum.totalAmount || 0,
     earningGrowth: monthsEarnings.map(m => ({
       label: m.label,
@@ -291,11 +263,11 @@ const getAllUsersFromDb = async (
   const filterQuery = buildFilterQuery(filterFields);
 
   // Date range filtering
-  const dateQuery = buildDateRangeQuery({
-    startDate: options.startDate,
-    endDate: options.endDate,
-    dateField: 'createdAt',
-  });
+  // const dateQuery = buildDateRangeQuery({
+  //   startDate: options.startDate,
+  //   endDate: options.endDate,
+  //   dateField: 'createdAt',
+  // });
 
   // Base query for BUYER role users
   const baseQuery = {
@@ -313,7 +285,7 @@ const getAllUsersFromDb = async (
     baseQuery,
     searchQuery,
     filterQuery,
-    dateQuery,
+    // dateQuery,
   );
 
   // Sorting
@@ -336,8 +308,8 @@ const getAllUsersFromDb = async (
       status: true,
       bio: true,
       image: true,
-      gymId : true,
-      gymName : true,
+      gymId: true,
+      gymName: true,
       fitnessGoals: true,
       address: true,
       createdAt: true,
@@ -362,8 +334,8 @@ const getAUsersFromDb = async (userId: string, targetUserId: string) => {
       status: true,
       bio: true,
       image: true,
-      gymId : true,
-      gymName : true,
+      gymId: true,
+      gymName: true,
       fitnessGoals: true,
       address: true,
       createdAt: true,
@@ -561,7 +533,7 @@ const getAllTrainersFromDb = async (
       serviceTypes: trainer.trainerServiceTypes.map(tst => tst.serviceType),
       createdAt: trainer.createdAt,
       updatedAt: trainer.updatedAt,
-    }))
+    })),
   );
 
   return formatPaginationResponse(trainers, total, page, limit);
@@ -590,11 +562,11 @@ const getAllPostsFromDb = async (
   };
   const filterQuery = buildFilterQuery(filterFields);
   // Date range filtering
-  const dateQuery = buildDateRangeQuery({
-    startDate: options.startDate,
-    endDate: options.endDate,
-    dateField: 'createdAt',
-  });
+  // const dateQuery = buildDateRangeQuery({
+  //   startDate: options.startDate,
+  //   endDate: options.endDate,
+  //   dateField: 'createdAt',
+  // });
   // Base query to fetch all posts
   const baseQuery = {};
   // Combine all queries
@@ -602,7 +574,7 @@ const getAllPostsFromDb = async (
     baseQuery,
     searchQuery,
     filterQuery,
-    dateQuery,
+    // dateQuery,
   );
   // Sorting
   const orderBy = getPaginationQuery(sortBy, sortOrder).orderBy;
@@ -638,7 +610,6 @@ const getAllPostsFromDb = async (
   return formatPaginationResponse(posts, total, page, limit);
 };
 
-
 const getAllProductsFromDb = async (
   userId: string,
   options: ISearchAndFilterOptions,
@@ -648,8 +619,8 @@ const getAllProductsFromDb = async (
 
   //base query to only fetch visible products
   const baseQuery = {
-    // isVisible: false,
-    sellerId: { not: userId },
+    // isActive: false,
+    userId: { not: userId },
   };
   // Build search query for searchable fields
   const searchFields = ['productName', 'description'];
@@ -668,25 +639,25 @@ const getAllProductsFromDb = async (
     }),
     ...(options.priceMin && { price: { gte: Number(options.priceMin) } }),
     ...(options.priceMax && { price: { lte: Number(options.priceMax) } }),
-    ...(options.isVisible !== undefined && {
-      isVisible: options.isVisible === 'true' || options.isVisible === true,
+    ...(options.isActive !== undefined && {
+      isActive: options.isActive === 'true' || options.isActive === true,
     }),
   };
   const filterQuery = buildFilterQuery(filterFields);
 
   // Date range filtering
-  const dateQuery = buildDateRangeQuery({
-    startDate: options.startDate,
-    endDate: options.endDate,
-    dateField: 'createdAt',
-  });
+  // const dateQuery = buildDateRangeQuery({
+  //   startDate: options.startDate,
+  //   endDate: options.endDate,
+  //   dateField: 'createdAt',
+  // });
 
   // Combine all queries
   const whereQuery = combineQueries(
     baseQuery,
     searchQuery,
     filterQuery,
-    dateQuery,
+    // dateQuery,
   );
 
   // Sorting
@@ -705,46 +676,81 @@ const getAllProductsFromDb = async (
       id: true,
       productName: true,
       description: true,
+      week: true,
+      agreement: true,
+      totalPurchased: true,
+      views: true,
       price: true,
       discount: true,
-      stock: true,
       avgRating: true,
-      totalRating: true,
-      productImages: true,
-      isVisible: true,
+      ratingCount: true,
+      productImage: true,
+      productVideo: true,
+      pdf: true,
+      isActive: true,
       createdAt: true,
       updatedAt: true,
-      // sellerId: true,
-      seller: {
+      // userId: true,
+      user: {
         select: {
-          userId: true,
-          companyName: true,
-          logo: true,
-        },
-      },
-      category: {
-        select: {
-          id: true,
-          name: true,
-        },
-      },
-      brand: {
-        select: {
-          id: true,
-          brandName: true,
-          brandImage: true,
+          trainers: {
+            select: {
+              userId: true,
+              specialtyId: true,
+              portfolio: true,
+              certifications: true,
+              experienceYears: true,
+              specialty: {
+                select: {
+                  id: true,
+                  specialtyName: true,
+                },
+              },
+            },
+          },
         },
       },
     },
   });
 
-  return formatPaginationResponse(products, total, page, limit);
+  // Flatten the products to include trainer info at the top level
+    const flattenedProducts = products.map(product => {
+      const trainer = product.user?.trainers?.[0];
+      return {
+        id: product.id,
+        productName: product.productName,
+        description: product.description,
+        week: product.week,
+        agreement: product.agreement,
+        totalPurchased: product.totalPurchased,
+        views: product.views,
+        price: product.price,
+        discount: product.discount,
+        avgRating: product.avgRating,
+        ratingCount: product.ratingCount,
+        productImage: product.productImage,
+        productVideo: product.productVideo,
+        pdf: product.pdf,
+        isActive: product.isActive,
+        createdAt: product.createdAt,
+        updatedAt: product.updatedAt,
+        // trainer: trainer ? {
+        //   userId: trainer.userId,
+        //   specialtyId: trainer.specialtyId,
+        //   portfolio: trainer.portfolio,
+        //   certifications: trainer.certifications,
+        //   experienceYears: trainer.experienceYears,
+        //   specialty: trainer.specialty,
+        // } : null,
+      };
+    });
+
+    return formatPaginationResponse(flattenedProducts, total, page, limit);
 };
 
 const updateProductVisibilityIntoDb = async (
   userId: string,
   productId: string,
-  payload: { isVisible: boolean },
 ) => {
   const product = await prisma.product.findUnique({
     where: {
@@ -760,7 +766,7 @@ const updateProductVisibilityIntoDb = async (
       id: productId,
     },
     data: {
-      isVisible: payload.isVisible,
+      isActive: !product.isActive,
     },
   });
   if (!updatedProduct) {
