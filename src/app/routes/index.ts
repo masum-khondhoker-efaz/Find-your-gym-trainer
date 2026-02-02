@@ -26,6 +26,8 @@ import { path } from 'pdfkit';
 import { trainersRoutes } from '../modules/trainers/trainers.routes';
 import { favoriteTrainerRoutes } from '../modules/favoriteTrainer/favoriteTrainer.routes';
 import { favoriteProductRoutes } from '../modules/favoriteProduct/favoriteProduct.routes';
+import { subscriptionOfferRoutes } from '../modules/subscriptionOffer/subscriptionOffer.routes';
+import { userSubscriptionRoutes } from '../modules/userSubscription/userSubscription.routes';
 // import { contactUsInfoRoutes } from '../modules/contactUsInfo/contactUsInfo.routes';
 // import { newsletterSubscriberRoutes } from '../modules/newsletterSubscriber/newsletterSubscriber.routes';
 // import { supportRoutes } from '../modules/support/support.routes';
@@ -149,7 +151,14 @@ const moduleRoutes = [
     path: '/trainers',
     route: trainersRoutes,
   },
-  
+  {
+    path: '/subscription-plans',
+    route: subscriptionOfferRoutes,
+  },
+  {
+    path: '/subscription-order',
+    route: userSubscriptionRoutes,
+  },
   
 ];
 

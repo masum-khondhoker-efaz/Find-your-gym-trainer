@@ -41,7 +41,7 @@ const getFavoriteTrainerListFromDb = async (
 
   const skip = (Number(page) - 1) * Number(limit);
 
-  const result = await prisma.favoriteTrainer.findMany({
+  const favoriteTrainers = await prisma.favoriteTrainer.findMany({
     where: {
       userId: userId,
     },
@@ -51,9 +51,79 @@ const getFavoriteTrainerListFromDb = async (
       [sortBy]: sortOrder,
     },
     include: {
-      trainer: true,
+      trainer: {
+        select: {
+          userId: true,
+          experienceYears: true,
+          avgRating: true,
+          ratingCount: true,
+          totalReferrals: true,
+          views: true,
+          trainerSpecialties: {
+            select: {
+              specialty: {
+                select: {
+                  id: true,
+                  specialtyName: true,
+                },
+              },
+            },
+          },
+          trainerServiceTypes: {
+            select: {
+              serviceType: {
+                select: {
+                  id: true,
+                  serviceName: true,
+                },
+              },
+            },
+          },
+          portfolio: true,
+          certifications: true,
+          user: {
+            select: {
+              id: true,
+              fullName: true,
+              email: true,
+              image: true,
+              bio: true,
+              phoneNumber: true,
+              address: true,
+              latitude: true,
+              longitude: true,
+            },
+          },
+        },
+      },
     },
   });
+
+  const result = favoriteTrainers.map((favorite) => ({
+    id: favorite.id,
+    userId: favorite.userId,
+    trainerId: favorite.trainerId,
+    createdAt: favorite.createdAt,
+    updatedAt: favorite.updatedAt,
+    experienceYears: favorite.trainer.experienceYears,
+    avgRating: favorite.trainer.avgRating,
+    ratingCount: favorite.trainer.ratingCount,
+    totalReferrals: favorite.trainer.totalReferrals,
+    views: favorite.trainer.views,
+    trainerSpecialties: favorite.trainer.trainerSpecialties.map(ts => ts.specialty),
+    trainerServiceTypes: favorite.trainer.trainerServiceTypes.map(tst => tst.serviceType),
+    portfolio: favorite.trainer.portfolio,
+    certifications: favorite.trainer.certifications,
+    trainerUserId: favorite.trainer.user.id,
+    fullName: favorite.trainer.user.fullName,
+    email: favorite.trainer.user.email,
+    image: favorite.trainer.user.image,
+    bio: favorite.trainer.user.bio,
+    phoneNumber: favorite.trainer.user.phoneNumber,
+    address: favorite.trainer.user.address,
+    latitude: favorite.trainer.user.latitude,
+    longitude: favorite.trainer.user.longitude,
+  }));
 
   const total = await prisma.favoriteTrainer.count({
     where: {
@@ -80,6 +150,19 @@ const deleteFavoriteTrainerItemFromDb = async (
   userId: string,
   favoriteTrainerId: string,
 ) => {
+  // check if favoriteTrainer exists
+  const existingFavoriteTrainer = await prisma.favoriteTrainer.findFirst({
+    where: {
+      trainerId: favoriteTrainerId,
+      userId: userId,
+    },
+  });
+  if (!existingFavoriteTrainer) {
+    throw new AppError(
+      httpStatus.NOT_FOUND,
+      'favoriteTrainerId not found',
+    );
+  }
   const deletedItem = await prisma.favoriteTrainer.deleteMany({
     where: {
       trainerId: favoriteTrainerId,

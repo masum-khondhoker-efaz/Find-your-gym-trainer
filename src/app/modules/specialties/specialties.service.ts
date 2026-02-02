@@ -27,7 +27,7 @@ const createSpecialtiesIntoDb = async (userId: string, data: any) => {
   return result;
 };
 
-const getSpecialtiesListFromDb = async (userId: string) => {
+const getSpecialtiesListFromDb = async () => {
   const result = await prisma.specialties.findMany();
   if (result.length === 0) {
     return [];
@@ -36,7 +36,7 @@ const getSpecialtiesListFromDb = async (userId: string) => {
 };
 
 const getSpecialtiesByIdFromDb = async (
-  userId: string,
+  // userId: string,
   specialtiesId: string,
 ) => {
   const result = await prisma.specialties.findUnique({

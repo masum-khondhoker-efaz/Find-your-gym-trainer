@@ -8,18 +8,18 @@ datasource db {
 }
 
 model User {
-  id                         String        @id @default(auto()) @map("_id") @db.ObjectId
+  id                         String                  @id @default(auto()) @map("_id") @db.ObjectId
   fullName                   String
-  email                      String        @unique
+  email                      String                  @unique
   password                   String?
-  role                       UserRoleEnum  @default(MEMBER)
-  status                     UserStatus    @default(PENDING)
-  isVerified                 Boolean       @default(false)
-  isProfileComplete          Boolean       @default(false)
+  role                       UserRoleEnum            @default(MEMBER)
+  status                     UserStatus              @default(PENDING)
+  isVerified                 Boolean                 @default(false)
+  isProfileComplete          Boolean                 @default(false)
   address                    String?
   latitude                   Float?
   longitude                  Float?
-  isLoggedIn                 Boolean       @default(false)
+  isLoggedIn                 Boolean                 @default(false)
   bio                        String?
   gymId                      String?
   gymName                    String?
@@ -31,39 +31,49 @@ model User {
   plateForm                  PlatFormType?
   fcmToken                   String?
   fcmTokenEx                 String?
+  isDeleted                  Boolean                 @default(false)
+  isVerifiedForPasswordReset Boolean                 @default(false)
   stripeCustomerId           String?
-  isVerifiedForPasswordReset Boolean       @default(false)
-  createdAt                  DateTime      @default(now())
-  updatedAt                  DateTime      @updatedAt
+  stripeAccountUrl           String?
+  stripeAccountId            String?
+  stripeSubscriptionId       String?
+  onBoarding                 Boolean                 @default(false)
+  subscriptionPlan           SubscriptionPlanStatus?
+  isSubscribed               Boolean                 @default(false)
+  subscriptionEnd            DateTime?
+  createdAt                  DateTime                @default(now())
+  updatedAt                  DateTime                @updatedAt
 
   // Relationships
-  review           Review[]
-  faq              Faq[]
-  termAndCondition TermAndCondition[]
-  privacyPolicy    PrivacyPolicy[]
-  notification     Notification[]
-  payment          Payment[]
-  category         Category[]
-  aboutUs          AboutUs[]
-  helpAndSupport   HelpAndSupport[]
-  Reply            Reply[]
-  admin            Admin?
-  favoriteProduct  FavoriteProduct[]
-  foundingTeam     FoundingTeam[]
-  contactUsInfo    ContactUsInfo[]
-  trainers         Trainer[]
-  appliedReferrals AppliedReferral[]
-  serviceTypes     ServiceTypes[]
-  specialties      Specialties[]
-  referrals        Referral[]
-  socialAccounts   SocialAccount[]
-  posts            Post[]
-  likes            Like[]
-  comments         Comment[]
-  shares           Share[]
-  postImpressions  PostImpression[]
-  products         Product[]
-  favoriteTrainers FavoriteTrainer[]
+  review             Review[]
+  faq                Faq[]
+  termAndCondition   TermAndCondition[]
+  privacyPolicy      PrivacyPolicy[]
+  notification       Notification[]
+  payment            Payment[]
+  category           Category[]
+  aboutUs            AboutUs[]
+  helpAndSupport     HelpAndSupport[]
+  Reply              Reply[]
+  admin              Admin?
+  favoriteProduct    FavoriteProduct[]
+  foundingTeam       FoundingTeam[]
+  contactUsInfo      ContactUsInfo[]
+  trainers           Trainer[]
+  appliedReferrals   AppliedReferral[]
+  serviceTypes       ServiceTypes[]
+  specialties        Specialties[]
+  referrals          Referral[]
+  socialAccounts     SocialAccount[]
+  posts              Post[]
+  likes              Like[]
+  comments           Comment[]
+  shares             Share[]
+  postImpressions    PostImpression[]
+  products           Product[]
+  favoriteTrainers   FavoriteTrainer[]
+  subscriptionOffers SubscriptionOffer[]
+  userSubscriptions  UserSubscription[]
 
   @@map("users")
 }
@@ -102,6 +112,7 @@ model Trainer {
   specialty           Specialties?         @relation(fields: [specialtyId], references: [id])
   trainerServiceTypes TrainerServiceType[]
   favoriteTrainer     FavoriteTrainer[]
+  trainerSpecialties  TrainerSpecialty[]
 
   @@map("trainers")
 }
@@ -143,10 +154,26 @@ model Specialties {
   updatedAt     DateTime @updatedAt
 
   // Relationships
-  user    User      @relation(fields: [userId], references: [id])
-  trainer Trainer[]
+  user               User               @relation(fields: [userId], references: [id])
+  trainer            Trainer[]
+  trainerSpecialties TrainerSpecialty[]
 
   @@map("specialties")
+}
+
+model TrainerSpecialty {
+  id          String   @id @default(auto()) @map("_id") @db.ObjectId
+  trainerId   String   @db.ObjectId
+  specialtyId String   @db.ObjectId
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  // Relationships
+  trainer   Trainer     @relation(fields: [trainerId], references: [userId])
+  specialty Specialties @relation(fields: [specialtyId], references: [id])
+
+  @@unique([trainerId, specialtyId])
+  @@map("trainer_specialties")
 }
 
 model Referral {
@@ -369,8 +396,8 @@ model FavoriteTrainer {
   updatedAt DateTime @updatedAt
 
   // Relationships
-  user      User     @relation(fields: [userId], references: [id])
-  trainer   Trainer  @relation(fields: [trainerId], references: [userId])
+  user    User    @relation(fields: [userId], references: [id])
+  trainer Trainer @relation(fields: [trainerId], references: [userId])
 
   @@unique([userId, trainerId]) // prevent duplicate favorites
   @@map("favorite_trainers")
@@ -393,18 +420,60 @@ model Notification {
   @@map("notifications")
 }
 
+model SubscriptionOffer {
+  id              String                 @id @default(auto()) @map("_id") @db.ObjectId
+  userId          String                 @db.ObjectId
+  title           String
+  description     String?
+  price           Float
+  currency        String?                @default("usd")
+  duration        SubscriptionType
+  planType        SubscriptionPlanStatus @default(TRAINER_PRO)
+  status          UserStatus             @default(ACTIVE)
+  stripeProductId String?
+  stripePriceId   String?
+  createdAt       DateTime               @default(now())
+  updatedAt       DateTime               @updatedAt
+
+  // Relationships
+  creator          User               @relation(fields: [userId], references: [id])
+  UserSubscription UserSubscription[]
+
+  @@map("subscription_offers")
+}
+
+model UserSubscription {
+  id                   String        @id @default(auto()) @map("_id") @db.ObjectId
+  userId               String        @db.ObjectId
+  subscriptionOfferId  String        @db.ObjectId
+  startDate            DateTime      @default(now())
+  endDate              DateTime
+  stripeSubscriptionId String?       @unique
+  paymentStatus        PaymentStatus @default(PENDING)
+  createdAt            DateTime      @default(now())
+  updatedAt            DateTime      @updatedAt
+
+  // Relationships
+  user              User              @relation(fields: [userId], references: [id])
+  subscriptionOffer SubscriptionOffer @relation(fields: [subscriptionOfferId], references: [id])
+
+  @@map("user_subscriptions")
+}
+
 model Payment {
-  id              String        @id @default(auto()) @map("_id") @db.ObjectId
-  userId          String        @db.ObjectId
-  paymentIntentId String?
-  paymentMethodId String?
-  paymentAmount   Float
-  paymentDate     DateTime      @default(now())
-  amountProvider  String
-  invoice         Json?
-  status          PaymentStatus @default(PENDING)
-  createdAt       DateTime      @default(now())
-  updatedAt       DateTime      @updatedAt
+  id                   String        @id @default(auto()) @map("_id") @db.ObjectId
+  userId               String        @db.ObjectId
+  paymentIntentId      String?
+  paymentMethodId      String?
+  stripeSubscriptionId String?
+  invoiceId            String?
+  paymentAmount        Float
+  paymentDate          DateTime      @default(now())
+  amountProvider       String
+  invoice              Json?
+  status               PaymentStatus @default(PENDING)
+  createdAt            DateTime      @default(now())
+  updatedAt            DateTime      @updatedAt
 
   user User @relation(fields: [userId], references: [id])
 
@@ -607,6 +676,18 @@ enum PaymentStatus {
   REFUNDED
   REQUIRES_CAPTURE
   CANCELLED
+}
+
+enum SubscriptionType {
+  WEEKLY
+  MONTHLY
+  YEARLY
+  LIFETIME
+}
+
+enum SubscriptionPlanStatus {
+  FREE
+  TRAINER_PRO
 }
 
 enum SocialPlatformType {

@@ -29,7 +29,7 @@ const createServiceTypesIntoDb = async (userId: string, data: any) => {
     return result;
 };
 
-const getServiceTypesListFromDb = async (userId: string) => {
+const getServiceTypesListFromDb = async () => {
   
     const result = await prisma.serviceTypes.findMany();
     if (result.length === 0) {
@@ -38,7 +38,7 @@ const getServiceTypesListFromDb = async (userId: string) => {
     return result;
 };
 
-const getServiceTypesByIdFromDb = async (userId: string, serviceTypesId: string) => {
+const getServiceTypesByIdFromDb = async ( serviceTypesId: string) => {
   
     const result = await prisma.serviceTypes.findUnique({ 
     where: {

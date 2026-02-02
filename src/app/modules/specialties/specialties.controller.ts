@@ -15,8 +15,8 @@ const createSpecialties = catchAsync(async (req, res) => {
 });
 
 const getSpecialtiesList = catchAsync(async (req, res) => {
-  const user = req.user as any;
-  const result = await specialtiesService.getSpecialtiesListFromDb(user.id);
+  // const user = req.user as any;
+  const result = await specialtiesService.getSpecialtiesListFromDb();
   sendResponse(res, {
     statusCode: httpStatus.OK,
     success: true,
@@ -26,8 +26,8 @@ const getSpecialtiesList = catchAsync(async (req, res) => {
 });
 
 const getSpecialtiesById = catchAsync(async (req, res) => {
-  const user = req.user as any;
-  const result = await specialtiesService.getSpecialtiesByIdFromDb(user.id, req.params.id);
+  // const user = req.user as any;
+  const result = await specialtiesService.getSpecialtiesByIdFromDb( req.params.id);
   sendResponse(res, {
     statusCode: httpStatus.OK,
     success: true,

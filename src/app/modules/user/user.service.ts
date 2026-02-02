@@ -33,6 +33,9 @@ const registerUserIntoDB = async (payload: {
   const existingUser = await prisma.user.findUnique({
     where: { email: payload.email },
   });
+  if(existingUser?.isDeleted){
+    throw new AppError(httpStatus.NOT_FOUND, 'You cannot register with this email. Please contact support.');
+  }
 
   if (existingUser) {
     if (existingUser.isVerified === false) {
@@ -249,10 +252,14 @@ const getMyTrainerProfileFromDB = async (id: string) => {
       experienceYears: true,
       certifications: true,
       portfolio: true,
-      specialty: {
+      trainerSpecialties: {
         select: {
-          id: true,
-          specialtyName: true,
+          specialty: {
+            select: {
+              id: true,
+              specialtyName: true,
+            },
+          },
         },
       },
       trainerServiceTypes: {
@@ -276,7 +283,10 @@ const getMyTrainerProfileFromDB = async (id: string) => {
     experienceYears: Profile.experienceYears,
     certifications: Profile.certifications,
     portfolio: Profile.portfolio,
-    specialtyName: Profile.specialty?.specialtyName,
+    specialtyName: Profile.trainerSpecialties.map(ts => ({
+      id: ts.specialty.id,
+      specialtyName: ts.specialty.specialtyName,
+    })),
     serviceTypes: Profile.trainerServiceTypes.map(tst => ({
       id: tst.serviceType.id,
       serviceName: tst.serviceType.serviceName,
@@ -351,7 +361,7 @@ const updateUserRoleStatusIntoDB = async (id: string, payload: any) => {
 const updateTrainerProfileIntoDB = async (
   userId: string,
   payload: {
-    specialtyId?: string;
+    trainerSpecialty?: string[];
     experienceYears?: number;
     trainerServiceType?: string[];
   },
@@ -371,14 +381,13 @@ const updateTrainerProfileIntoDB = async (
 
   // 2️⃣ Build update data (partial update)
   const updateData: any = {
-    ...(payload.specialtyId && { specialtyId: payload.specialtyId }),
     ...(payload.experienceYears && {
       experienceYears: payload.experienceYears,
     }),
-    ...(fileUrl.certifications && {
+    ...(fileUrl?.certifications && {
       certifications: fileUrl.certifications,
     }),
-    ...(fileUrl.portfolio && {
+    ...(fileUrl?.portfolio && {
       portfolio: fileUrl.portfolio,
     }),
   };
@@ -395,17 +404,32 @@ const updateTrainerProfileIntoDB = async (
     if (payload.trainerServiceType && payload.trainerServiceType.length > 0) {
       // Remove old mappings
       await tx.trainerServiceType.deleteMany({
-        where: { trainerId: existingTrainer.id },
+        where: { trainerId: existingTrainer.userId },
       });
 
       // Insert new mappings
       await tx.trainerServiceType.createMany({
         data: payload.trainerServiceType.map(serviceTypeId => ({
-          trainerId: existingTrainer.id,
+          trainerId: existingTrainer.userId,
           serviceTypeId,
         })),
       });
     }
+    // 5️⃣ update specialties mapping if provided
+    if (payload.trainerSpecialty && payload.trainerSpecialty.length > 0) {
+      // Remove old mappings
+      await tx.trainerSpecialty.deleteMany({
+        where: { trainerId: existingTrainer.userId },
+      });
+      // Insert new mappings
+      await tx.trainerSpecialty.createMany({
+        data: payload.trainerSpecialty.map(specialtyId => ({
+          trainerId: existingTrainer.userId,
+          specialtyId,
+        })),
+      });
+    }
+
 
     return updatedTrainer;
   });
@@ -875,7 +899,7 @@ const updateProfileImageIntoDB = async (
 const trainerRegisterUserIntoDB = async (
   userId: string,
   payload: {
-    specialtyId: string;
+    trainerSpecialty: string[];
     experienceYears: number;
     trainerServiceType: string[];
   },
@@ -892,7 +916,6 @@ const trainerRegisterUserIntoDB = async (
   const updatedUser = await prisma.trainer.create({
     data: {
       userId: userId,
-      specialtyId: payload.specialtyId,
       experienceYears: payload.experienceYears,
       certifications: [fileUrl],
     },
@@ -902,6 +925,12 @@ const trainerRegisterUserIntoDB = async (
       data: payload.trainerServiceType.map(serviceType => ({
         trainerId: updatedUser.userId,
         serviceTypeId: serviceType,
+      })),
+    });
+    await prisma.trainerSpecialty.createMany({
+      data: payload.trainerSpecialty.map(specialty => ({
+        trainerId: updatedUser.userId,
+        specialtyId: specialty,
       })),
     });
   }
@@ -914,7 +943,16 @@ const trainerRegisterUserIntoDB = async (
     include: {
       trainers: {
         include: {
-          specialty: true,
+          trainerSpecialties: {
+            include: {
+              specialty: {
+                select: {
+                  id: true,
+                  specialtyName: true,
+                },
+              },
+            },
+          },
           trainerServiceTypes: {
             include: {
               serviceType: {
@@ -974,5 +1012,5 @@ export const UserServices = {
   getUserProfileImageForDelete,
   getTrainerProfileFilesForDelete,
   updateTrainerProfileIntoDB,
-  getMyTrainerProfileFromDB
+  getMyTrainerProfileFromDB,
 };

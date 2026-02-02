@@ -14,9 +14,9 @@ router.post(
   serviceTypesController.createServiceTypes,
 );
 
-router.get('/', auth(), serviceTypesController.getServiceTypesList);
+router.get('/', serviceTypesController.getServiceTypesList);
 
-router.get('/:id', auth(), serviceTypesController.getServiceTypesById);
+router.get('/:id', serviceTypesController.getServiceTypesById);
 
 router.patch(
   '/:id',

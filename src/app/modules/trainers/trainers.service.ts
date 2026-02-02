@@ -1,3 +1,4 @@
+import { TrainerSpecialty } from './../../../../node_modules/.prisma/client/index.d';
 import prisma from '../../utils/prisma';
 import { UserRoleEnum, UserStatus } from '@prisma/client';
 import AppError from '../../errors/AppError';
@@ -67,13 +68,13 @@ const getTrainersListFromDb = async (
   }
 
   // Service type filter
-  if (options?.serviceName || options?.trainerServiceType) {
+  if (options?.serviceName || options?.trainerServiceTypes) {
     whereClause.trainers = {
       some: {
         trainerServiceTypes: {
           some: {
             serviceType: {
-              serviceName: options.serviceName || options.trainerServiceType,
+              serviceName: options.serviceName || options.trainerServiceTypes,
             },
           },
         },
@@ -85,9 +86,12 @@ const getTrainersListFromDb = async (
   if (options?.specialtyName) {
     whereClause.trainers = {
       some: {
-        ...whereClause.trainers?.some,
-        specialty: {
-          specialtyName: options.specialtyName,
+        trainerSpecialties: {
+          some: {
+            specialty: {
+              specialtyName: options.specialtyName || options.trainerSpecialties,
+            },
+          },
         },
       },
     };
@@ -114,7 +118,11 @@ const getTrainersListFromDb = async (
     include: {
       trainers: {
         include: {
-          specialty: true,
+          trainerSpecialties: {
+            include: {
+              specialty: true,
+            },
+          },
           trainerServiceTypes: {
             include: {
               serviceType: true,
@@ -180,18 +188,16 @@ const getTrainersListFromDb = async (
       latitude: user.latitude,
       longitude: user.longitude,
       distance: ((user as any).distance)?.toFixed(2) || null,
-      trainerId: trainer?.id,
+      // trainerId: trainer?.id,
       experienceYears: trainer?.experienceYears,
       avgRating: trainer?.avgRating,
       ratingCount: trainer?.ratingCount,
       totalReferrals: trainer?.totalReferrals,
       views: trainer?.views,
-      specialty: trainer?.specialty
-        ? {
-            id: trainer.specialty.id,
-            specialtyName: trainer.specialty.specialtyName,
-          }
-        : null,
+      specialty: trainer?.trainerSpecialties.map(ts => ({
+        id: ts.specialty.id,
+        specialtyName: ts.specialty.specialtyName,
+      })),
       serviceTypes: serviceTypes || [],
       portfolio: trainer?.portfolio || [],
       certifications: trainer?.certifications || [],
@@ -232,7 +238,11 @@ const getTrainersByIdFromDb = async (
           longitude: true,
         },
       },
-      specialty: true,
+      trainerSpecialties: {
+        include: {
+          specialty: true,
+        },
+      },
       trainerServiceTypes: {
         include: {
           serviceType: true,
@@ -267,18 +277,16 @@ const getTrainersByIdFromDb = async (
     address: result.user.address,
     latitude: result.user.latitude,
     longitude: result.user.longitude,
-    trainerId: result.id,
+    // trainerId: result.id,
     experienceYears: result.experienceYears,
     avgRating: result.avgRating,
     ratingCount: result.ratingCount,
     totalReferrals: result.totalReferrals,
     views: updated.views,
-    specialty: result.specialty
-      ? {
-          id: result.specialty.id,
-          specialtyName: result.specialty.specialtyName,
-        }
-      : null,
+    specialty: result.trainerSpecialties.map(ts => ({
+      id: ts.specialty.id,
+      specialtyName: ts.specialty.specialtyName,
+    })),
     serviceTypes: result.trainerServiceTypes.map(tst => ({
       id: tst.serviceType.id,
       serviceName: tst.serviceType.serviceName,

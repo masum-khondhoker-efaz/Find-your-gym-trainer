@@ -356,7 +356,7 @@ const getAllTrainersFromDb = async (
 
   // Build search query for searchable fields in trainerProfile
   const searchFields = [
-    'trainers.specialty.specialtyName',
+    'trainers.trainerSpecialties.specialty.specialtyName',
     'trainers.trainerServiceTypes.serviceTypes.serviceName',
     'user.fullName',
     'user.email',
@@ -368,10 +368,12 @@ const getAllTrainersFromDb = async (
         OR: [
           {
             trainers: {
-              specialty: {
-                specialtyName: {
-                  contains: options.searchTerm,
-                  mode: 'insensitive' as const,
+              trainerSpecialties: {
+                specialty: {
+                  specialtyName: {
+                    contains: options.searchTerm,
+                    mode: 'insensitive' as const,
+                  },
                 },
               },
             },
@@ -494,10 +496,14 @@ const getAllTrainersFromDb = async (
           experienceYears: true,
           createdAt: true,
           updatedAt: true,
-          specialty: {
+          trainerSpecialties: {
             select: {
-              id: true,
-              specialtyName: true,
+              specialty: {
+                select: {
+                  id: true,
+                  specialtyName: true,
+                },
+              },
             },
           },
           trainerServiceTypes: {
@@ -529,7 +535,7 @@ const getAllTrainersFromDb = async (
       portfolio: trainer.portfolio,
       certifications: trainer.certifications,
       experienceYears: trainer.experienceYears,
-      specialty: trainer.specialty,
+      specialty: trainer.trainerSpecialties.map(ts => ts.specialty),
       serviceTypes: trainer.trainerServiceTypes.map(tst => tst.serviceType),
       createdAt: trainer.createdAt,
       updatedAt: trainer.updatedAt,
@@ -810,10 +816,14 @@ const updateTrainerStatusIntoDb = async (
           experienceYears: true,
           createdAt: true,
           updatedAt: true,
-          specialty: {
+          trainerSpecialties: {
             select: {
-              id: true,
-              specialtyName: true,
+              specialty: {
+                select: {
+                  id: true,
+                  specialtyName: true,
+                },
+              },
             },
           },
           trainerServiceTypes: {
@@ -866,10 +876,14 @@ const getATrainerFromDb = async (userId: string, trainerId: string) => {
           experienceYears: true,
           createdAt: true,
           updatedAt: true,
-          specialty: {
+          trainerSpecialties: {
             select: {
-              id: true,
-              specialtyName: true,
+              specialty: {
+                select: {
+                  id: true,
+                  specialtyName: true,
+                },
+              },
             },
           },
           trainerServiceTypes: {
@@ -908,7 +922,7 @@ const getATrainerFromDb = async (userId: string, trainerId: string) => {
     portfolio: trainer.portfolio,
     certifications: trainer.certifications,
     experienceYears: trainer.experienceYears,
-    specialty: trainer.specialty,
+    specialty: trainer.trainerSpecialties.map(ts => ts.specialty),
     serviceTypes: trainer.trainerServiceTypes.map(tst => tst.serviceType),
     createdAt: trainer.createdAt,
     updatedAt: trainer.updatedAt,

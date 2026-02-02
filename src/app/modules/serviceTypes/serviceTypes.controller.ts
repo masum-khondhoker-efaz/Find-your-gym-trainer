@@ -15,8 +15,8 @@ const createServiceTypes = catchAsync(async (req, res) => {
 });
 
 const getServiceTypesList = catchAsync(async (req, res) => {
-  const user = req.user as any;
-  const result = await serviceTypesService.getServiceTypesListFromDb(user.id);
+  // const user = req.user as any;
+  const result = await serviceTypesService.getServiceTypesListFromDb();
   sendResponse(res, {
     statusCode: httpStatus.OK,
     success: true,
@@ -26,8 +26,8 @@ const getServiceTypesList = catchAsync(async (req, res) => {
 });
 
 const getServiceTypesById = catchAsync(async (req, res) => {
-  const user = req.user as any;
-  const result = await serviceTypesService.getServiceTypesByIdFromDb(user.id, req.params.id);
+  // const user = req.user as any;
+  const result = await serviceTypesService.getServiceTypesByIdFromDb( req.params.id);
   sendResponse(res, {
     statusCode: httpStatus.OK,
     success: true,

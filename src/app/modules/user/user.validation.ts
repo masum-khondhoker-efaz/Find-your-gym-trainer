@@ -25,9 +25,11 @@ const registerUser = z.object({
 
 const trainerRegisterUser = z.object({
   body: z.object({
-    specialtyId: z.string({
-      required_error: 'Specialty ID is required!',
-    }),
+    trainerSpecialty: z.array(
+      z.string({
+        required_error: 'Trainer specialty is required!',
+      }),
+    ),
     experienceYears: z
       .string({
         required_error: 'Experience years is required!',
@@ -43,10 +45,12 @@ const trainerRegisterUser = z.object({
 
 const updateTrainerProfileSchema = z.object({
   body: z.object({
-    specialtyId: z
-      .string({
-        required_error: 'Specialty ID is required!',
-      })
+    trainerSpecialty: z
+      .array(
+        z.string({
+          required_error: 'Trainer specialty is required!',
+        }),
+      )
       .optional(),
     experienceYears: z
       .string({

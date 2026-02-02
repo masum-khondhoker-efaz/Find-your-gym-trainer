@@ -91,28 +91,24 @@ const updateMyProfile = catchAsync(async (req, res) => {
 
 const updateTrainerProfile = catchAsync(async (req, res) => {
   const user = req.user as any;
-  const files = req.files as Express.Multer.File[]
+  const files = req.files as Express.Multer.File[];
   let fileUrl = null;
 
-  if (files && Object.keys(files).length > 0) {
-    
-  const certificationFiles = files.find(f => f.fieldname === 'certifications');
+  if (files && files.length > 0) {
+    const certificationFiles = files.find(f => f.fieldname === 'certifications');
     const portfolioFiles = files.find(f => f.fieldname === 'portfolio');
 
-    console.log('Received files:', certificationFiles);
-    console.log('Received files:', portfolioFiles);
-
-    // Get existing files for deletion
+    // Get existing files for deletion only if new files are uploaded
     const previousFileUrls = await UserServices.getTrainerProfileFilesForDelete(user.id);
 
-    // Delete previous certification documents from DigitalOcean Spaces
+    // Delete previous certification documents from DigitalOcean Spaces only if new ones are uploaded
     if (previousFileUrls.certifications && certificationFiles) {
       for (const certification of previousFileUrls.certifications) {
         await deleteFileFromSpace(certification);
       }
     }
 
-    // Delete previous portfolio files from DigitalOcean Spaces
+    // Delete previous portfolio files from DigitalOcean Spaces only if new ones are uploaded
     if (previousFileUrls.portfolio && portfolioFiles) {
       for (const portfolioFile of previousFileUrls.portfolio) {
         await deleteFileFromSpace(portfolioFile);

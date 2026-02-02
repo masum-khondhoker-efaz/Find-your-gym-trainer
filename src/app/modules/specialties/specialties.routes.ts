@@ -14,9 +14,9 @@ router.post(
   specialtiesController.createSpecialties,
 );
 
-router.get('/', auth(), specialtiesController.getSpecialtiesList);
+router.get('/',  specialtiesController.getSpecialtiesList);
 
-router.get('/:id', auth(), specialtiesController.getSpecialtiesById);
+router.get('/:id', specialtiesController.getSpecialtiesById);
 
 router.patch(
   '/:id',

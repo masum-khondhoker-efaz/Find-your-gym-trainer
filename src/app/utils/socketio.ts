@@ -68,9 +68,9 @@
 //         // If subscription is free, prevent chat between saloon owner and barber or the customer
 //         if (
 //           subscriptionPlan === SubscriptionPlanStatus.FREE &&
-//           ((senderRole === UserRoleEnum.SALOON_OWNER &&
+//           ((senderRole === UserRoleEnum.TRAINER &&
 //             receiverRole === UserRoleEnum.BARBER) ||
-//             (senderRole === UserRoleEnum.SALOON_OWNER &&
+//             (senderRole === UserRoleEnum.TRAINER &&
 //               receiverRole === UserRoleEnum.CUSTOMER))
 //         ) {
 //           socket.emit('error', {
@@ -292,8 +292,8 @@
 //         // If subscription is free, prevent chat between saloon owner and barber or customer
 //         if (
 //           subscriptionPlan === SubscriptionPlanStatus.FREE &&
-//           (senderRole === UserRoleEnum.SALOON_OWNER ||
-//             receiverRole === UserRoleEnum.SALOON_OWNER)
+//           (senderRole === UserRoleEnum.TRAINER ||
+//             receiverRole === UserRoleEnum.TRAINER)
 //         ) {
 //           socket.emit('error', {
 //             message: `Cannot fetch chats between saloon owner and the barber or the customer if saloon owner's subscription is free.`,
@@ -558,7 +558,7 @@
 //         let filteredRooms = rooms;
 
 //         // Apply filtering based on saloon owner's subscription plan
-//         if (user.role === UserRoleEnum.SALOON_OWNER) {
+//         if (user.role === UserRoleEnum.TRAINER) {
 //           if (user.subscriptionPlan === SubscriptionPlanStatus.BASIC_PREMIUM) {
 //             // Only show rooms with barbers
 //             filteredRooms = rooms.filter(room => {
@@ -611,7 +611,7 @@
 //                 userInfos.find(userInfo => userInfo.id === room.senderId)
 //                   ?.image || null,
 //               saloonOwnerSubscriptionPlan:
-//                 user.role === UserRoleEnum.SALOON_OWNER
+//                 user.role === UserRoleEnum.TRAINER
 //                   ? user.subscriptionPlan
 //                   : null,
 //               // Always include the other user's subscription plan name

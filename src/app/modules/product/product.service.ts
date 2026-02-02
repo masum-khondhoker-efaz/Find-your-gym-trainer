@@ -143,20 +143,20 @@ const getProductListFromDb = async (
             fullName: true,
             email: true,
             image: true,
-            trainers: {
-              select: {
-                trainerServiceTypes: {
-                  select: {
-                    serviceType: {
-                      select: {
-                        id: true,
-                        serviceName: true,
-                      },
-                    },
-                  },
-                },
-              },
-            },
+            // trainers: {
+            //   select: {
+            //     trainerServiceTypes: {
+            //       select: {
+            //         serviceType: {
+            //           select: {
+            //             id: true,
+            //             serviceName: true,
+            //           },
+            //         },
+            //       },
+            //     },
+            //   },
+            // },
           },
         },
       },

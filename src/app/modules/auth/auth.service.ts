@@ -17,6 +17,9 @@ const loginUserFromDB = async (payload: { email: string; password: string }) => 
  if(!user){
   throw new AppError(httpStatus.NOT_FOUND, 'User not found');
  }
+ if(user.isDeleted){
+  throw new AppError(httpStatus.NOT_FOUND, 'User not found');
+ }
  
 
   // 3. Validate password for normal users

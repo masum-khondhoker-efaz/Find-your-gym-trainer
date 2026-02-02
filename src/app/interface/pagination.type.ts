@@ -1,3 +1,4 @@
+import { TrainerSpecialty } from './../../../node_modules/.prisma/client/index.d';
 export interface IPaginationOptions {
   page?: number;
   limit?: number;
@@ -41,6 +42,10 @@ export interface ISearchAndFilterOptions extends IPaginationOptions {
   discountPriceMax?: number;
   rating?: number;
   isActive?: boolean | string;
+  startDate?: string;
+  endDate?: string;
+  subscriptionType?: string;
+  duration?: string;
 
   // User-related filters
   userStatus?: string;
@@ -55,7 +60,7 @@ export interface ISearchAndFilterOptions extends IPaginationOptions {
   // Trainer-related filters
   specialtyName?: string;
   experienceYears?: number;
-  trainerServiceType?: string;
+  trainerSpecialties?: string;
   serviceName?: string;
   trainerServiceTypes?: string;
 
