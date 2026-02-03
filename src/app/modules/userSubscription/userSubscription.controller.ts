@@ -129,9 +129,23 @@ const deleteUserSubscriptionForCustomer = catchAsync(async (req, res) => {
   });
 });
 
+
+const getPaymentMethodFromSession = catchAsync(async (req, res) => {
+  const result = await userSubscriptionService.getPaymentMethodFromSession(
+    req.params.sessionId,
+  );
+  sendResponse(res, {
+    statusCode: httpStatus.OK,
+    success: true,
+    message: 'Payment method retrieved successfully',
+    data: result,
+  });
+});
+
 export const userSubscriptionController = {
   createUserSubscription,
   createCheckoutSession,
+  getPaymentMethodFromSession,
   getUserSubscriptionList,
   getUOwnerSubscriptionPlan,
   getUserSubscriptionById,

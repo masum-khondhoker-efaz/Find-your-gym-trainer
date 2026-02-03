@@ -911,7 +911,6 @@ const deleteUserSubscriptionItemFromDb = async (
   return result;
 };
 
-
 const createCheckoutSessionInStripe = async (
   userId: string,
   data: {
@@ -1003,9 +1002,15 @@ const createCheckoutSessionInStripe = async (
   const session = await stripe.checkout.sessions.create({
     customer: stripeCustomerId,
     payment_method_types: ['card'],
-    mode: 'setup',
+    mode: 'subscription',
+    line_items: [
+      {
+        price: subscriptionOffer.stripePriceId,
+        quantity: 1,
+      },
+    ],
     success_url: `${config.backend_base_url}/payment-success?session_id={CHECKOUT_SESSION_ID}`,
-  cancel_url: `${config.backend_base_url}/payment-cancel`,
+    cancel_url: `${config.backend_base_url}/payment-cancel`,
     metadata: {
       userId: userId,
       subscriptionOfferId: data.subscriptionOfferId,
@@ -1018,9 +1023,45 @@ const createCheckoutSessionInStripe = async (
   };
 };
 
+const getPaymentMethodFromSession = async (sessionId: string) => {
+  try {
+    const session = await stripe.checkout.sessions.retrieve(sessionId, {
+      expand: ['setup_intent'],
+    });
+
+    if (session.mode !== 'setup') {
+      throw new AppError(
+        httpStatus.BAD_REQUEST,
+        'This session is not a setup session',
+      );
+    }
+
+    const setupIntent = session.setup_intent as Stripe.SetupIntent;
+    const paymentMethodId = setupIntent.payment_method as string;
+
+    if (!paymentMethodId) {
+      throw new AppError(
+        httpStatus.BAD_REQUEST,
+        'Payment method not found in session',
+      );
+    }
+
+    return {
+      paymentMethodId,
+      userId: session.metadata?.userId,
+      subscriptionOfferId: session.metadata?.subscriptionOfferId,
+    };
+  } catch (error: any) {
+    if (error.type === 'StripeInvalidRequestError') {
+      throw new AppError(httpStatus.NOT_FOUND, 'Session not found');
+    }
+    throw error;
+  }
+};
 
 export const userSubscriptionService = {
   createCheckoutSessionInStripe,
+  getPaymentMethodFromSession,
   createUserSubscriptionIntoDb,
   getUserSubscriptionListFromDb,
   getTrainerSubscriptionPlanFromDb,

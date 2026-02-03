@@ -10,6 +10,7 @@ import bodyParser from 'body-parser';
 import { helmetConfig } from './config/helemt';
 import rateLimit from 'express-rate-limit';
 import cookieParser from 'cookie-parser';
+import { paymentController } from './app/modules/payment/payment.controller';
 // import { doubleCsrf } from 'csrf-csrf';
 
 const app: Application = express();
@@ -76,11 +77,11 @@ app.use(
 // )
 // );
 
-// app.use(
-//   '/api/v1/stripe/payment-webhook',
-//   express.raw({ type: 'application/json' }),
-//   PaymentController.handleWebHook,
-// );
+app.use(
+  '/api/v1/stripe/payment-webhook',
+  express.raw({ type: 'application/json' }),
+  paymentController.handleWebHook,
+);
 
 //parser
 app.use(cookieParser());
@@ -116,13 +117,13 @@ app.use(helmetConfig);
 // --- ROUTES ---
 
 // 4. Endpoint to get the token (The frontend calls this first)
-app.get('/api/v1/csrf-token',
-  //  doubleCsrfProtection, 
-   (req, res) => {
-  const token = (req as any).csrfToken();
-  // console.log('CSRF Token generated:', token);
-  res.json({ token });
-});
+// app.get('/api/v1/csrf-token',
+//   //  doubleCsrfProtection, 
+//    (req, res) => {
+//   const token = (req as any).csrfToken();
+//   // console.log('CSRF Token generated:', token);
+//   res.json({ token });
+// });
 
 app.get('/', (req: Request, res: Response) => {
   res.send({

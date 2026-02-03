@@ -28,6 +28,12 @@ router.post(
   userSubscriptionController.createCheckoutSession,
 );
 
+router.get(
+  '/payment-method/:sessionId',
+  auth(UserRoleEnum.TRAINER),
+  userSubscriptionController.getPaymentMethodFromSession,
+);
+
 
 router.get(
   '/own-plan',
