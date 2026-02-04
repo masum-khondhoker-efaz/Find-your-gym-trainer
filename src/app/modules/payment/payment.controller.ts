@@ -109,7 +109,6 @@ const deletePayment = catchAsync(async (req, res) => {
   });
 });
 
-
 // ...existing code (createPayment, getPaymentList, etc.)...
 
 const handleWebHook = catchAsync(async (req: any, res: any) => {
@@ -187,16 +186,16 @@ const handleWebHook = catchAsync(async (req: any, res: any) => {
 
     case 'checkout.session.completed': {
       const session = event.data.object as Stripe.Checkout.Session;
-      
+
       // Handle SETUP mode (payment method collection)
       if (session.mode === 'setup' && session.setup_intent) {
         console.log('Setup mode checkout completed');
-        
+
         try {
           const setupIntent = await stripe.setupIntents.retrieve(
             session.setup_intent as string,
           );
-          
+
           const paymentMethodId = setupIntent.payment_method as string;
           const userId = session.metadata?.userId;
           const subscriptionOfferId = session.metadata?.subscriptionOfferId;
@@ -207,10 +206,30 @@ const handleWebHook = catchAsync(async (req: any, res: any) => {
 
           // Optional: Store this temporarily in a separate table or send notification
           // The Flutter app should retrieve this via the getPaymentMethodFromSession endpoint
-          
         } catch (error) {
           console.error('Error processing setup intent:', error);
         }
+        break;
+      }
+
+      // Handle SUBSCRIPTION mode (new checkout flow)
+      if (session.mode === 'subscription') {
+        console.log('Subscription checkout completed');
+
+        const userId = session.metadata?.userId;
+        const subscriptionOfferId = session.metadata?.subscriptionOfferId;
+        const subscriptionId = session.subscription as string;
+
+        if (!userId || !subscriptionOfferId || !subscriptionId) {
+          console.error('Missing metadata in subscription checkout session');
+          break;
+        }
+
+        // The subscription creation will be handled by customer.subscription.created webhook
+        // This just confirms the checkout completed successfully
+        console.log(
+          '✅ Subscription checkout completed, awaiting subscription.created event',
+        );
         break;
       }
 
@@ -222,14 +241,14 @@ const handleWebHook = catchAsync(async (req: any, res: any) => {
           : '0',
       );
 
-      const paymentMethodId = session.pa;
+      // const paymentMethodId = session.paym;
 
-      if (!userId || !paymentMethodId) {
+      if (!userId) {
         console.error('Missing metadata in Checkout Session');
         break;
       }
-      
-      const productTitle = session.metadata?.productNames as string;
+
+      // const productTitle = session.metadata?.productNames as string;
 
       // Create or update payment record
       let payment = await prisma.payment.findFirst({
@@ -267,9 +286,6 @@ const handleWebHook = catchAsync(async (req: any, res: any) => {
       if (!payment) {
         throw new AppError(httpStatus.BAD_REQUEST, 'Payment creation failed');
       }
-
-      // Update checkout status (assuming you have checkoutService)
-      await userSubscriptionService.createUserSubscriptionIntoDb(userId,{ checkoutId, paymentId: payment.id});
 
       console.log('✅ Payment completed and database updated');
       break;
@@ -373,6 +389,89 @@ const handleWebHook = catchAsync(async (req: any, res: any) => {
       break;
     }
 
+    case 'customer.subscription.created': {
+      const subscription = event.data.object as Stripe.Subscription;
+
+      const userId = subscription.metadata?.userId;
+      const subscriptionOfferId = subscription.metadata?.subscriptionOfferId;
+
+      if (!userId || !subscriptionOfferId) {
+        console.log('Missing metadata in subscription');
+        break;
+      }
+
+      const user = await prisma.user.findFirst({
+        where: { id: userId },
+      });
+
+      if (!user) {
+        console.log('User not found for subscription creation');
+        break;
+      }
+
+      // Check subscription status before creating in DB
+      if (
+        subscription.status === 'incomplete' ||
+        subscription.status === 'incomplete_expired' ||
+        subscription.status === 'past_due'
+      ) {
+        console.log('Subscription payment not completed, skipping DB creation');
+        break;
+      }
+
+      const subscriptionWithPeriod =
+        subscription as unknown as Stripe.Subscription & {
+          current_period_start: number;
+          current_period_end: number;
+        };
+
+      // Use the webhook-specific function
+      try {
+        await userSubscriptionService.createUserSubscriptionFromWebhook(
+          userId,
+          subscriptionOfferId,
+          subscription.id,
+          subscriptionWithPeriod.current_period_start,
+          subscriptionWithPeriod.current_period_end,
+        );
+        console.log('✅ Subscription created in database from webhook');
+      } catch (error) {
+        console.error('Error creating subscription from webhook:', error);
+        // Don't throw - webhook should return 200 even if DB update fails
+      }
+
+      // Send invoice email if active
+      if (subscription.status === 'active' && subscription.latest_invoice) {
+        try {
+          console.log(
+            'Attempting to send invoice to customer:',
+            subscription.latest_invoice,
+          );
+
+          const invoiceId =
+            typeof subscription.latest_invoice === 'string'
+              ? subscription.latest_invoice
+              : subscription.latest_invoice?.id;
+
+          console.log('Invoice ID to be sent:', invoiceId);
+
+          if (typeof invoiceId === 'string') {
+            await stripe.invoices.sendInvoice(invoiceId);
+            console.log('Invoice sent to customer:', invoiceId);
+          } else {
+            console.log('Invoice ID is undefined, cannot send invoice.');
+          }
+        } catch (error) {
+          console.log(
+            'Invoice sending failed, but subscription is active:',
+            error,
+          );
+        }
+      }
+
+      break;
+    }
+
     case 'customer.subscription.updated': {
       const subscription = event.data.object as Stripe.Subscription;
 
@@ -381,7 +480,7 @@ const handleWebHook = catchAsync(async (req: any, res: any) => {
       });
 
       if (!user) break;
-      
+
       let planType: SubscriptionPlanStatus = SubscriptionPlanStatus.FREE;
       if (subscription.items.data.length > 0) {
         const subscriptionOffer = await prisma.subscriptionOffer.findFirst({
@@ -481,7 +580,7 @@ const handleWebHook = catchAsync(async (req: any, res: any) => {
       const paymentToUpdate = await prisma.payment.findFirst({
         where: { stripeSubscriptionId: subscription.id },
       });
-      
+
       if (paymentToUpdate?.paymentIntentId) {
         try {
           const refund = await stripe.refunds.create({
@@ -510,7 +609,7 @@ const handleWebHook = catchAsync(async (req: any, res: any) => {
           },
           data: { endDate: new Date(), paymentStatus: PaymentStatus.REFUNDED },
         });
-        
+
         await prisma.payment.updateMany({
           where: {
             stripeSubscriptionId: subscription.id,
@@ -766,7 +865,190 @@ const handleWebHook = catchAsync(async (req: any, res: any) => {
 
       if (user && user.userSubscriptions.length > 0 && dueDate) {
         // Send renewal reminder notification here
-        console.log(`Renewal reminder for user ${user.id}: $${amountDue} on ${dueDate}`);
+        console.log(
+          `Renewal reminder for user ${user.id}: $${amountDue} on ${dueDate}`,
+        );
+      }
+      break;
+    }
+
+    case 'invoice.payment_succeeded': {
+      const paidInvoice = event.data.object as Stripe.Invoice;
+      const userId = paidInvoice.lines.data[0]?.metadata?.userId;
+
+      if (!userId) {
+        console.log('Missing metadata in subscription');
+        break;
+      }
+      const user = await prisma.user.findFirst({
+        where: { id: userId },
+      });
+      if (!user) {
+        console.log('User not found for subscription creation');
+        break;
+      }
+
+      // Fallback email
+      if (user.email) {
+        try {
+          console.log('Attempting fallback email to user:', user.email);
+
+          const latestInvoice = paidInvoice.hosted_invoice_url as String;
+
+          await emailSender(
+            'Your Subscription is Active',
+            user.email,
+            `<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            line-height: 1.6;
+            color: #333333;
+            margin: 10px;
+            padding: 10px;
+            background-color: #f9f9f9;
+        }
+        .container {
+            max-width: 600px;
+            margin: 0 auto;
+            background-color: #ffffff;
+            border-radius: 8px;
+            overflow: hidden;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+        }
+        .header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            padding: 30px 20px;
+            text-align: center;
+            color: white;
+        }
+        .logo {
+            font-size: 24px;
+            font-weight: bold;
+            margin-bottom: 10px;
+        }
+        .content {
+            padding: 30px;
+        }
+        .greeting {
+            font-size: 18px;
+            font-weight: bold;
+            margin-bottom: 20px;
+            color: #2d3748;
+        }
+        .message {
+            margin-bottom: 25px;
+            font-size: 16px;
+            color: #4a5568;
+        }
+        .invoice-section {
+            background-color: #f7fafc;
+            padding: 20px;
+            border-radius: 6px;
+            border-left: 4px solid #667eea;
+            margin: 25px 0;
+        }
+        .invoice-title {
+            font-weight: bold;
+            color: #2d3748;
+            margin-bottom: 10px;
+        }
+        .invoice-link {
+            display: inline-block;
+            background-color: #667eea;
+            color: white;
+            padding: 12px 24px;
+            text-decoration: none;
+            border-radius: 5px;
+            font-weight: bold;
+            margin-top: 10px;
+        }
+        .invoice-link:hover {
+            background-color: #5a67d8;
+        }
+        .support {
+            margin-top: 30px;
+            padding-top: 20px;
+            border-top: 1px solid #e2e8f0;
+            color: #718096;
+        }
+        .footer {
+            background-color: #edf2f7;
+            padding: 20px;
+            text-align: center;
+            font-size: 14px;
+            color: #718096;
+        }
+        .signature {
+            margin-top: 25px;
+            color: #2d3748;
+            font-weight: bold;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <div class="logo"> VitaKinetic </div>
+            <h1>Subscription Activated</h1>
+        </div>
+        
+        <div class="content">
+            <div class="greeting">Dear ${user.fullName},</div>
+            
+            <div class="message">
+                Thank you for subscribing! Your subscription is now active and you can start enjoying all the premium features immediately.
+            </div>
+
+            <div class="invoice-section">
+                <div class="invoice-title">📄 Your Invoice</div>
+                <p>You can view and download your invoice directly from our secure payment portal:</p>
+                ${
+                  latestInvoice
+                    ? `<a href="${latestInvoice}" class="invoice-link" target="_blank">
+                        View & Download Invoice
+                      </a>`
+                    : `<p style="color: #8FAF9A;">Invoice link will be available shortly. If you don't receive it within 24 hours, please contact support.</p>`
+                }
+                
+            </div>
+
+            <div class="message">
+                <strong>What's next?</strong><br>
+                • Access your premium features immediately<br>
+                • Manage your subscription from your account settings<br>
+                • Receive automatic receipts for future payments
+            </div>
+
+            <div class="support">
+                <strong>Need Help?</strong><br>
+                If you have any questions or need assistance, our support team is here to help!<br>
+                📧 Email: support@vitakinetic.com<br>
+                ⏰ Hours: Monday-Friday, 9AM-6PM
+            </div>
+
+            <div class="signature">
+                Best regards,<br>
+                <strong>The VitaKinetic Team</strong>
+            </div>
+        </div>
+
+        <div class="footer">
+            <p>©${new Date().getFullYear()} VitaKinetic. All rights reserved.</p>
+            <p>You're receiving this email because you recently subscribed to our service.</p>
+        </div>
+    </div>
+</body>
+                </html>`,
+          );
+          console.log('Fallback email sent to user:', user.email);
+        } catch (emailError) {
+          console.log('Fallback email sending failed:', emailError);
+        }
       }
       break;
     }

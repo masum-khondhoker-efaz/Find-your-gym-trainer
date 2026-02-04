@@ -16,7 +16,7 @@ router.post(
 
 router.post(
   '/trainer-register',
-  multerUploadMultiple.single('trainer-certifications'),
+  multerUploadMultiple.single('certificationDocument'),
   parseBody,
   auth(UserRoleEnum.TRAINER),
   validateRequest(UserValidations.trainerRegisterUser),

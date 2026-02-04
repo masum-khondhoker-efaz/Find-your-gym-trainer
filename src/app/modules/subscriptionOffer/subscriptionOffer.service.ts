@@ -31,7 +31,7 @@ const createSubscriptionOfferIntoDb = async (userId: string, data: any) => {
     try {
       product = await stripe.products.create({
         name: result.title,
-        description: result.description!,
+        // description: result.description!,
       });
     } catch (err) {
       throw new AppError(httpStatus.BAD_REQUEST, 'Stripe product not created!');

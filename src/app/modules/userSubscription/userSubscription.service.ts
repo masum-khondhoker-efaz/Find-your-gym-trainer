@@ -22,6 +22,13 @@ const createUserSubscriptionIntoDb = async (
   data: {
     paymentMethodId: string;
     subscriptionOfferId: string;
+    subscriptionPriceId: string;
+    invoiceId: string;
+    stripeSubscriptionId: string;
+    subscriptionWithPeriod: {
+      current_period_start: number;
+      current_period_end: number;
+    };
   },
 ) => {
   // 1. Get user (outside transaction)
@@ -61,41 +68,41 @@ const createUserSubscriptionIntoDb = async (
   if (!userCheck)
     throw new AppError(httpStatus.BAD_REQUEST, 'User not found or inactive');
 
-  // 2. Ensure Stripe customer exists (outside transaction)
-  let stripeCustomerId = userCheck.stripeCustomerId;
-  if (!stripeCustomerId) {
-    const customer = await stripe.customers.create({
-      email: userCheck.email!,
-      name: userCheck.fullName!,
-      address: {
-        city: userCheck.address ?? 'City',
-        country: 'US',
-      },
-      metadata: { userId: userCheck.id, role: userCheck.role },
-    });
+  // // 2. Ensure Stripe customer exists (outside transaction)
+  // let stripeCustomerId = userCheck.stripeCustomerId;
+  // if (!stripeCustomerId) {
+  //   const customer = await stripe.customers.create({
+  //     email: userCheck.email!,
+  //     name: userCheck.fullName!,
+  //     address: {
+  //       city: userCheck.address ?? 'City',
+  //       country: 'US',
+  //     },
+  //     metadata: { userId: userCheck.id, role: userCheck.role },
+  //   });
 
-    // Update DB (outside transaction)
-    await prisma.user.update({
-      where: { id: userId },
-      data: { stripeCustomerId: customer.id },
-    });
+  //   // Update DB (outside transaction)
+  //   await prisma.user.update({
+  //     where: { id: userId },
+  //     data: { stripeCustomerId: customer.id },
+  //   });
 
-    stripeCustomerId = customer.id;
-  }
+  //   stripeCustomerId = customer.id;
+  // }
 
-  // 3. Attach payment method (outside transaction)
-  try {
-    await stripe.paymentMethods.attach(data.paymentMethodId, {
-      customer: stripeCustomerId,
-    });
-  } catch (err: any) {
-    if (err.code !== 'resource_already_attached') throw err;
-  }
+  // // 3. Attach payment method (outside transaction)
+  // try {
+  //   await stripe.paymentMethods.attach(data.paymentMethodId, {
+  //     customer: stripeCustomerId,
+  //   });
+  // } catch (err: any) {
+  //   if (err.code !== 'resource_already_attached') throw err;
+  // }
 
-  // 4. Set default payment method (outside transaction)
-  await stripe.customers.update(stripeCustomerId, {
-    invoice_settings: { default_payment_method: data.paymentMethodId },
-  });
+  // // 4. Set default payment method (outside transaction)
+  // await stripe.customers.update(stripeCustomerId, {
+  //   invoice_settings: { default_payment_method: data.paymentMethodId },
+  // });
 
   // 5. Fetch subscription offer (outside transaction)
   const subscriptionOffer = await prisma.subscriptionOffer.findUnique({
@@ -110,23 +117,21 @@ const createUserSubscriptionIntoDb = async (
   }
 
   // check if user is trying to subscribe to their own plan
-  if (subscriptionOffer.creator.stripeCustomerId === stripeCustomerId) {
-    throw new AppError(
-      httpStatus.BAD_REQUEST,
-      'You cannot subscribe to your own subscription plan',
-    );
-  }
+  // if (subscriptionOffer.creator.stripeCustomerId === stripeCustomerId) {
+  //   throw new AppError(
+  //     httpStatus.BAD_REQUEST,
+  //     'You cannot subscribe to your own subscription plan',
+  //   );
+  // }
 
   // check in stripe that the user is already not subscribed to this plan
   const existingStripeSubscriptions = await stripe.subscriptions.list({
-    customer: stripeCustomerId,
+    customer: userCheck.stripeCustomerId!,
     status: 'active',
     expand: ['data.items'],
   });
   const isAlreadySubscribed = existingStripeSubscriptions.data.some(sub =>
-    sub.items.data.some(
-      item => item.price.id === subscriptionOffer.stripePriceId,
-    ),
+    sub.items.data.some(item => item.price.id === data.subscriptionPriceId),
   );
   if (isAlreadySubscribed) {
     throw new AppError(
@@ -136,63 +141,156 @@ const createUserSubscriptionIntoDb = async (
   }
 
   // 6. Create subscription in Stripe (outside transaction)
-  const subscription = await stripe.subscriptions.create({
-    customer: stripeCustomerId,
-    items: [{ price: subscriptionOffer.stripePriceId }],
-    default_payment_method: data.paymentMethodId,
-    expand: ['latest_invoice.payment_intent'],
-    metadata: {
-      userId: userId,
-      subscriptionOfferId: data.subscriptionOfferId,
-      createdBy: 'api-direct', // Helps identify source
-    },
-  });
+  // const subscription = await stripe.subscriptions.create({
+  //   customer: stripeCustomerId,
+  //   items: [{ price: subscriptionOffer.stripePriceId }],
+  //   default_payment_method: data.paymentMethodId,
+  //   expand: ['latest_invoice.payment_intent'],
+  //   metadata: {
+  //     userId: userId,
+  //     subscriptionOfferId: data.subscriptionOfferId,
+  //     createdBy: 'api-direct', // Helps identify source
+  //   },
+  // });
 
   // Extract details
-  const latestInvoice = subscription.latest_invoice as any;
-  const paymentIntent = latestInvoice?.payment_intent as Stripe.PaymentIntent;
 
-  console.log(latestInvoice, paymentIntent);
-
-  if (
-    subscription.status === 'incomplete' &&
-    paymentIntent?.status !== 'succeeded'
-  ) {
-    throw new AppError(httpStatus.BAD_REQUEST, 'Subscription payment failed');
-  }
-
-  // Also handle other failure cases
-  if (
-    subscription.status === 'incomplete_expired' ||
-    subscription.status === 'past_due'
-  ) {
-    throw new AppError(httpStatus.BAD_REQUEST, 'Subscription payment failed');
-  }
-
-  console.log('Subscription status:', subscription.status);
   // After successful payment check, send invoice
-
-  const subscriptionWithPeriod =
-    subscription as unknown as Stripe.Subscription & {
-      current_period_start: number;
-      current_period_end: number;
-    };
 
   // 7. ONLY database operations go inside the transaction
   const result = await prisma.$transaction(
     async tx => {
       // Convert Stripe Unix timestamps to JavaScript Date objects
-      const startDate = subscriptionWithPeriod.current_period_start
-        ? new Date(subscriptionWithPeriod.current_period_start * 1000)
+      const startDate = data.subscriptionWithPeriod.current_period_start
+        ? new Date(data.subscriptionWithPeriod.current_period_start * 1000)
         : new Date();
 
-      const endDate = subscriptionWithPeriod.current_period_end
-        ? new Date(subscriptionWithPeriod.current_period_end * 1000)
+      const endDate = data.subscriptionWithPeriod.current_period_end
+        ? new Date(data.subscriptionWithPeriod.current_period_end * 1000)
         : new Date(startDate.getTime() + 30 * 24 * 60 * 60 * 1000);
 
       const createdSubscription = await tx.userSubscription.create({
         data: {
           userId: userCheck.id,
+          subscriptionOfferId: data.subscriptionOfferId,
+          startDate: startDate,
+          endDate: endDate,
+          stripeSubscriptionId: data.stripeSubscriptionId,
+          paymentStatus: PaymentStatus.COMPLETED,
+        },
+      });
+
+      await tx.payment.create({
+        data: {
+          stripeSubscriptionId: data.subscriptionOfferId,
+          paymentAmount: subscriptionOffer.price,
+          amountProvider: userCheck.stripeCustomerId!,
+          status: PaymentStatus.COMPLETED,
+          // paymentIntentId: paymentIntent?.id,
+          invoiceId: data.invoiceId,
+          user: {
+            connect: { id: userId },
+          },
+        },
+      });
+
+      await tx.user.update({
+        where: { id: userId },
+        data: {
+          isSubscribed: true,
+          subscriptionEnd: endDate,
+          subscriptionPlan: subscriptionOffer.planType,
+          stripeSubscriptionId: data.stripeSubscriptionId,
+        },
+      });
+
+      return {
+        ...createdSubscription,
+        subscriptionId: subscriptionOffer.id,
+        // paymentIntentId: paymentIntent?.id,
+      };
+    },
+    {
+      // Optional: Increase timeout if needed (default is 5000ms)
+      timeout: 10000, // 10 seconds
+    },
+  );
+
+  return result;
+};
+
+// NEW: Lightweight function specifically for webhook
+const createUserSubscriptionFromWebhook = async (
+  userId: string,
+  subscriptionOfferId: string,
+  stripeSubscriptionId: string,
+  current_period_start: number,
+  current_period_end: number,
+) => {
+  // Check for existing subscription
+  const existingSubscription = await prisma.userSubscription.findFirst({
+    where: {
+      userId: userId,
+      endDate: {
+        gt: new Date(),
+      },
+      paymentStatus: PaymentStatus.COMPLETED,
+    },
+  });
+
+  if (existingSubscription) {
+    throw new AppError(
+      httpStatus.BAD_REQUEST,
+      'An active subscription already exists for this user',
+    );
+  }
+
+  // Get user
+  const user = await prisma.user.findUnique({
+    where: {
+      id: userId,
+      role: UserRoleEnum.TRAINER,
+      status: UserStatus.ACTIVE,
+    },
+    select: {
+      id: true,
+      fullName: true,
+      email: true,
+      stripeCustomerId: true,
+    },
+  });
+
+  if (!user) {
+    throw new AppError(httpStatus.BAD_REQUEST, 'User not found or inactive');
+  }
+
+  // Get subscription offer
+  const subscriptionOffer = await prisma.subscriptionOffer.findUnique({
+    where: { id: subscriptionOfferId },
+  });
+
+  if (!subscriptionOffer) {
+    throw new AppError(httpStatus.NOT_FOUND, 'Subscription offer not found');
+  }
+
+  // Get subscription details from Stripe (no modifications, just reading)
+  const subscription = await stripe.subscriptions.retrieve(
+    stripeSubscriptionId,
+    {
+      expand: ['latest_invoice'],
+    },
+  );
+
+  const startDate = new Date(current_period_start * 1000);
+  const endDate = new Date(current_period_end * 1000);
+  const latestInvoice = subscription.latest_invoice as any;
+
+  // Only database operations in transaction
+  const result = await prisma.$transaction(
+    async tx => {
+      const createdSubscription = await tx.userSubscription.create({
+        data: {
+          userId: user.id,
           subscriptionOfferId: subscriptionOffer.id,
           startDate: startDate,
           endDate: endDate,
@@ -205,9 +303,8 @@ const createUserSubscriptionIntoDb = async (
         data: {
           stripeSubscriptionId: subscription.id,
           paymentAmount: subscriptionOffer.price,
-          amountProvider: stripeCustomerId,
+          amountProvider: user.stripeCustomerId!,
           status: PaymentStatus.COMPLETED,
-          // paymentIntentId: paymentIntent?.id,
           invoiceId: latestInvoice?.id,
           user: {
             connect: { id: userId },
@@ -225,200 +322,12 @@ const createUserSubscriptionIntoDb = async (
         },
       });
 
-      return {
-        ...createdSubscription,
-        subscriptionId: subscription.id,
-        paymentIntentId: paymentIntent?.id,
-      };
+      return createdSubscription;
     },
     {
-      // Optional: Increase timeout if needed (default is 5000ms)
-      timeout: 10000, // 10 seconds
+      timeout: 10000,
     },
   );
-
-  if (subscription.status === 'active' && subscription.latest_invoice) {
-    try {
-      console.log(
-        'Attempting to send invoice to customer:',
-        subscription.latest_invoice,
-      );
-
-      const invoiceId =
-        typeof subscription.latest_invoice === 'string'
-          ? subscription.latest_invoice
-          : subscription.latest_invoice?.id;
-
-      console.log('Invoice ID to be sent:', invoiceId);
-
-      if (typeof invoiceId === 'string') {
-        await stripe.invoices.sendInvoice(invoiceId);
-        console.log('Invoice sent to customer:', invoiceId);
-      } else {
-        console.log('Invoice ID is undefined, cannot send invoice.');
-      }
-    } catch (error) {
-      console.log('Invoice sending failed, but subscription is active:', error);
-      // Optional: fallback to your own email system
-      if (userCheck.email) {
-        try {
-          console.log('Attempting fallback email to user:', userCheck.email);
-          await emailSender(
-            'Your Subscription is Active',
-            userCheck.email,
-            `<!DOCTYPE html>
-<html>
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <style>
-        body {
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-            line-height: 1.6;
-            color: #333333;
-            margin: 10px;
-            padding: 10px;
-            background-color: #f9f9f9;
-        }
-        .container {
-            max-width: 600px;
-            margin: 0 auto;
-            background-color: #ffffff;
-            border-radius: 8px;
-            overflow: hidden;
-            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
-        }
-        .header {
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            padding: 30px 20px;
-            text-align: center;
-            color: white;
-        }
-        .logo {
-            font-size: 24px;
-            font-weight: bold;
-            margin-bottom: 10px;
-        }
-        .content {
-            padding: 30px;
-        }
-        .greeting {
-            font-size: 18px;
-            font-weight: bold;
-            margin-bottom: 20px;
-            color: #2d3748;
-        }
-        .message {
-            margin-bottom: 25px;
-            font-size: 16px;
-            color: #4a5568;
-        }
-        .invoice-section {
-            background-color: #f7fafc;
-            padding: 20px;
-            border-radius: 6px;
-            border-left: 4px solid #667eea;
-            margin: 25px 0;
-        }
-        .invoice-title {
-            font-weight: bold;
-            color: #2d3748;
-            margin-bottom: 10px;
-        }
-        .invoice-link {
-            display: inline-block;
-            background-color: #667eea;
-            color: white;
-            padding: 12px 24px;
-            text-decoration: none;
-            border-radius: 5px;
-            font-weight: bold;
-            margin-top: 10px;
-        }
-        .invoice-link:hover {
-            background-color: #5a67d8;
-        }
-        .support {
-            margin-top: 30px;
-            padding-top: 20px;
-            border-top: 1px solid #e2e8f0;
-            color: #718096;
-        }
-        .footer {
-            background-color: #edf2f7;
-            padding: 20px;
-            text-align: center;
-            font-size: 14px;
-            color: #718096;
-        }
-        .signature {
-            margin-top: 25px;
-            color: #2d3748;
-            font-weight: bold;
-        }
-    </style>
-</head>
-<body>
-    <div class="container">
-        <div class="header">
-            <div class="logo"> VitaKinetic </div>
-            <h1>Subscription Activated</h1>
-        </div>
-        
-        <div class="content">
-            <div class="greeting">Dear ${userCheck.fullName},</div>
-            
-            <div class="message">
-                Thank you for subscribing! Your subscription is now active and you can start enjoying all the premium features immediately.
-            </div>
-
-            <div class="invoice-section">
-                <div class="invoice-title">📄 Your Invoice</div>
-                <p>You can view and download your invoice directly from our secure payment portal:</p>
-                ${
-                  latestInvoice?.hosted_invoice_url
-                    ? `<a href="${latestInvoice.hosted_invoice_url}" class="invoice-link" target="_blank">
-                        View & Download Invoice
-                      </a>`
-                    : `<p style="color: #8FAF9A;">Invoice link will be available shortly. If you don't receive it within 24 hours, please contact support.</p>`
-                }
-            </div>
-
-            <div class="message">
-                <strong>What's next?</strong><br>
-                • Access your premium features immediately<br>
-                • Manage your subscription from your account settings<br>
-                • Receive automatic receipts for future payments
-            </div>
-
-            <div class="support">
-                <strong>Need Help?</strong><br>
-                If you have any questions or need assistance, our support team is here to help!<br>
-                📧 Email: support@vitakinetic.com<br>
-                ⏰ Hours: Monday-Friday, 9AM-6PM
-            </div>
-
-            <div class="signature">
-                Best regards,<br>
-                <strong>The VitaKinetic Team</strong>
-            </div>
-        </div>
-
-        <div class="footer">
-            <p>©${new Date().getFullYear()} VitaKinetic. All rights reserved.</p>
-            <p>You're receiving this email because you recently subscribed to our service.</p>
-        </div>
-    </div>
-</body>
-            </html>`,
-          );
-          console.log('Fallback email sent to user:', userCheck.email);
-        } catch (emailError) {
-          console.log('Fallback email sending failed:', emailError);
-        }
-      }
-    }
-  }
 
   return result;
 };
@@ -1015,6 +924,12 @@ const createCheckoutSessionInStripe = async (
       userId: userId,
       subscriptionOfferId: data.subscriptionOfferId,
     },
+    subscription_data: {
+      metadata: {
+        userId: userId,
+        subscriptionOfferId: data.subscriptionOfferId,
+      },
+    },
   });
 
   return {
@@ -1070,4 +985,5 @@ export const userSubscriptionService = {
   cancelAutomaticRenewalIntoDb,
   deleteUserSubscriptionItemFromDb,
   deleteCustomerSubscriptionItemFromDb,
+  createUserSubscriptionFromWebhook,
 };

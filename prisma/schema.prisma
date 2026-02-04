@@ -179,7 +179,7 @@ model TrainerSpecialty {
 model Referral {
   id               String            @id @default(auto()) @map("_id") @db.ObjectId
   userId           String            @db.ObjectId
-  referralCode     String
+  referralCode     String             
   createdAt        DateTime          @default(now())
   updatedAt        DateTime          @updatedAt
   appliedReferrals AppliedReferral[]

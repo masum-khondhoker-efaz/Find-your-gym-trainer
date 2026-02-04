@@ -22,12 +22,14 @@ import { likeRoutes } from '../modules/like/like.routes';
 import { commentRoutes } from '../modules/comment/comment.routes';
 import { shareRoutes } from '../modules/share/share.routes';
 import { productRoutes } from '../modules/product/product.routes';
-import { path } from 'pdfkit';
+import { path, ref } from 'pdfkit';
 import { trainersRoutes } from '../modules/trainers/trainers.routes';
 import { favoriteTrainerRoutes } from '../modules/favoriteTrainer/favoriteTrainer.routes';
 import { favoriteProductRoutes } from '../modules/favoriteProduct/favoriteProduct.routes';
 import { subscriptionOfferRoutes } from '../modules/subscriptionOffer/subscriptionOffer.routes';
 import { userSubscriptionRoutes } from '../modules/userSubscription/userSubscription.routes';
+import { referralRoutes } from '../modules/referral/referral.routes';
+import { appliedReferralRoutes } from '../modules/appliedReferral/appliedReferral.routes';
 // import { contactUsInfoRoutes } from '../modules/contactUsInfo/contactUsInfo.routes';
 // import { newsletterSubscriberRoutes } from '../modules/newsletterSubscriber/newsletterSubscriber.routes';
 // import { supportRoutes } from '../modules/support/support.routes';
@@ -159,7 +161,15 @@ const moduleRoutes = [
     path: '/subscription-order',
     route: userSubscriptionRoutes,
   },
-  
+  {
+    path: '/referrals',
+    route: referralRoutes,
+  },
+  {
+    path: '/applied-referrals',
+    route: appliedReferralRoutes,
+  },
+
 ];
 
 moduleRoutes.forEach(route => router.use(route.path, route.route));
