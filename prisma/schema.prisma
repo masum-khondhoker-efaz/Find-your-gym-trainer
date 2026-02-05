@@ -45,35 +45,39 @@ model User {
   updatedAt                  DateTime                @updatedAt
 
   // Relationships
-  review             Review[]
-  faq                Faq[]
-  termAndCondition   TermAndCondition[]
-  privacyPolicy      PrivacyPolicy[]
-  notification       Notification[]
-  payment            Payment[]
-  category           Category[]
-  aboutUs            AboutUs[]
-  helpAndSupport     HelpAndSupport[]
-  Reply              Reply[]
-  admin              Admin?
-  favoriteProduct    FavoriteProduct[]
-  foundingTeam       FoundingTeam[]
-  contactUsInfo      ContactUsInfo[]
-  trainers           Trainer[]
-  appliedReferrals   AppliedReferral[]
-  serviceTypes       ServiceTypes[]
-  specialties        Specialties[]
-  referrals          Referral[]
-  socialAccounts     SocialAccount[]
-  posts              Post[]
-  likes              Like[]
-  comments           Comment[]
-  shares             Share[]
-  postImpressions    PostImpression[]
-  products           Product[]
-  favoriteTrainers   FavoriteTrainer[]
-  subscriptionOffers SubscriptionOffer[]
-  userSubscriptions  UserSubscription[]
+  review                     Review[]
+  faq                        Faq[]
+  termAndCondition           TermAndCondition[]
+  privacyPolicy              PrivacyPolicy[]
+  notification               Notification[]
+  payment                    Payment[]
+  category                   Category[]
+  aboutUs                    AboutUs[]
+  helpAndSupport             HelpAndSupport[]
+  Reply                      Reply[]
+  admin                      Admin?
+  favoriteProduct            FavoriteProduct[]
+  foundingTeam               FoundingTeam[]
+  contactUsInfo              ContactUsInfo[]
+  trainers                   Trainer[]
+  appliedReferrals           AppliedReferral[]
+  serviceTypes               ServiceTypes[]
+  specialties                Specialties[]
+  referrals                  Referral[]
+  socialAccounts             SocialAccount[]
+  posts                      Post[]
+  likes                      Like[]
+  comments                   Comment[]
+  shares                     Share[]
+  postImpressions            PostImpression[]
+  products                   Product[]
+  favoriteTrainers           FavoriteTrainer[]
+  subscriptionOffers         SubscriptionOffer[]
+  userSubscriptions          UserSubscription[]
+  referralRewardSettings     referralRewardSettings[]
+  subscriptionPricingRules   SubscriptionPricingRule[]
+  subscriptionPricingUsages  SubscriptionPricingUsage[]
+  subscriptionAdminOverrides SubscriptionAdminOverride[]
 
   @@map("users")
 }
@@ -108,11 +112,12 @@ model Trainer {
   updatedAt       DateTime @updatedAt
 
   // Relationships
-  user                User                 @relation(fields: [userId], references: [id])
-  specialty           Specialties?         @relation(fields: [specialtyId], references: [id])
-  trainerServiceTypes TrainerServiceType[]
-  favoriteTrainer     FavoriteTrainer[]
-  trainerSpecialties  TrainerSpecialty[]
+  user                            User                             @relation(fields: [userId], references: [id])
+  specialty                       Specialties?                     @relation(fields: [specialtyId], references: [id])
+  trainerServiceTypes             TrainerServiceType[]
+  favoriteTrainer                 FavoriteTrainer[]
+  trainerSpecialties              TrainerSpecialty[]
+  subscriptionPricingRuleTrainers SubscriptionPricingRuleTrainer[]
 
   @@map("trainers")
 }
@@ -176,16 +181,30 @@ model TrainerSpecialty {
   @@map("trainer_specialties")
 }
 
-model Referral {
-  id               String            @id @default(auto()) @map("_id") @db.ObjectId
-  userId           String            @db.ObjectId
-  referralCode     String             
-  createdAt        DateTime          @default(now())
-  updatedAt        DateTime          @updatedAt
-  appliedReferrals AppliedReferral[]
+model referralRewardSettings {
+  id           String   @id @default(auto()) @map("_id") @db.ObjectId
+  userId       String   @db.ObjectId
+  rewardAmount Float    @default(0)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
 
   // Relationships
   user User @relation(fields: [userId], references: [id])
+
+  @@map("referral_reward_settings")
+}
+
+model Referral {
+  id             String   @id @default(auto()) @map("_id") @db.ObjectId
+  userId         String   @db.ObjectId
+  referralCode   String
+  stripeCouponId String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  // Relationships
+  user             User              @relation(fields: [userId], references: [id])
+  appliedReferrals AppliedReferral[]
 
   @@unique([referralCode, userId]) // prevent duplicate referrals
   @@map("referrals")
@@ -436,8 +455,9 @@ model SubscriptionOffer {
   updatedAt       DateTime               @updatedAt
 
   // Relationships
-  creator          User               @relation(fields: [userId], references: [id])
-  UserSubscription UserSubscription[]
+  creator                  User                      @relation(fields: [userId], references: [id])
+  UserSubscription         UserSubscription[]
+  subscriptionPricingRules SubscriptionPricingRule[]
 
   @@map("subscription_offers")
 }
@@ -454,10 +474,80 @@ model UserSubscription {
   updatedAt            DateTime      @updatedAt
 
   // Relationships
-  user              User              @relation(fields: [userId], references: [id])
-  subscriptionOffer SubscriptionOffer @relation(fields: [subscriptionOfferId], references: [id])
+  user                       User                        @relation(fields: [userId], references: [id])
+  subscriptionOffer          SubscriptionOffer           @relation(fields: [subscriptionOfferId], references: [id])
+  subscriptionPricingUsages  SubscriptionPricingUsage[]
+  subscriptionAdminOverrides SubscriptionAdminOverride[]
 
   @@map("user_subscriptions")
+}
+
+model SubscriptionPricingRule {
+  id                  String          @id @default(auto()) @map("_id") @db.ObjectId
+  userId              String          @db.ObjectId
+  subscriptionOfferId String          @db.ObjectId
+  name                String
+  type                PricingRuleType
+  discountPercent     Float?
+  discountAmount      Float?
+  maxSubscribers      Int? // first 50 trainers
+  usageCount          Int             @default(0)
+  startDate           DateTime?
+  endDate             DateTime?
+  durationMonths      Int?
+  isActive            Boolean         @default(true)
+  createdAt           DateTime        @default(now())
+  updatedAt           DateTime        @updatedAt
+
+  subscriptionOffer               SubscriptionOffer                @relation(fields: [subscriptionOfferId], references: [id])
+  user                            User                             @relation(fields: [userId], references: [id])
+  usages                          SubscriptionPricingUsage[]
+  subscriptionPricingRuleTrainers SubscriptionPricingRuleTrainer[]
+}
+
+model SubscriptionPricingUsage {
+  id             String   @id @default(auto()) @map("_id") @db.ObjectId
+  pricingRuleId  String   @db.ObjectId
+  userId         String   @db.ObjectId
+  subscriptionId String   @db.ObjectId
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  // Relationships
+  pricingRule  SubscriptionPricingRule @relation(fields: [pricingRuleId], references: [id])
+  user         User                    @relation(fields: [userId], references: [id])
+  subscription UserSubscription        @relation(fields: [subscriptionId], references: [id])
+
+  @@unique([pricingRuleId, userId])
+}
+
+model SubscriptionAdminOverride {
+  id                 String   @id @default(auto()) @map("_id") @db.ObjectId
+  userId             String   @db.ObjectId
+  userSubscriptionId String   @db.ObjectId
+  previousOfferId    String   @db.ObjectId
+  newOfferId         String   @db.ObjectId
+  overridePrice      Float?
+  note               String?
+  approvedByAdminId  String   @db.ObjectId
+  effectiveFrom      DateTime
+  trainerNotified    Boolean  @default(false)
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  subscription UserSubscription @relation(fields: [userSubscriptionId], references: [id])
+  user         User             @relation(fields: [userId], references: [id])
+}
+
+model SubscriptionPricingRuleTrainer {
+  id            String   @id @default(auto()) @map("_id") @db.ObjectId
+  pricingRuleId String   @db.ObjectId
+  trainerId     String   @db.ObjectId
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  subscriptionPricingRule SubscriptionPricingRule @relation(fields: [pricingRuleId], references: [id])
+  trainer                 Trainer                 @relation(fields: [trainerId], references: [userId])
 }
 
 model Payment {
@@ -659,6 +749,13 @@ enum OrderStatus {
   DELIVERED
   CANCELLED
   RETURNED
+}
+
+enum PricingRuleType {
+  FIRST_COME
+  SPECIFIC_TRAINER
+  TIME_BASED
+  REFERRAL
 }
 
 enum ResponseStatus {

@@ -33,8 +33,11 @@ const registerUserIntoDB = async (payload: {
   const existingUser = await prisma.user.findUnique({
     where: { email: payload.email },
   });
-  if(existingUser?.isDeleted){
-    throw new AppError(httpStatus.NOT_FOUND, 'You cannot register with this email. Please contact support.');
+  if (existingUser?.isDeleted) {
+    throw new AppError(
+      httpStatus.NOT_FOUND,
+      'You cannot register with this email. Please contact support.',
+    );
   }
 
   if (existingUser) {
@@ -272,6 +275,18 @@ const getMyTrainerProfileFromDB = async (id: string) => {
           },
         },
       },
+      user: {
+        select: {
+          referrals: {
+            select: {
+              id: true,
+              referralCode: true,
+              // createdAt: true,
+              // updatedAt: true,
+            },
+          },
+        },
+      },
     },
   });
   if (!Profile) {
@@ -279,7 +294,7 @@ const getMyTrainerProfileFromDB = async (id: string) => {
   }
   return {
     id: Profile.id,
-    specialtyId: Profile.specialtyId,
+    // specialtyId: Profile.specialtyId,
     experienceYears: Profile.experienceYears,
     certifications: Profile.certifications,
     portfolio: Profile.portfolio,
@@ -291,6 +306,7 @@ const getMyTrainerProfileFromDB = async (id: string) => {
       id: tst.serviceType.id,
       serviceName: tst.serviceType.serviceName,
     })),
+    referrals: Profile.user.referrals,
   };
 };
 
@@ -429,7 +445,6 @@ const updateTrainerProfileIntoDB = async (
         })),
       });
     }
-
 
     return updatedTrainer;
   });
