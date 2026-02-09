@@ -3,6 +3,12 @@ import { PricingRuleType, UserRoleEnum, UserStatus } from '@prisma/client';
 import AppError from '../../errors/AppError';
 import httpStatus from 'http-status';
 
+import Stripe from 'stripe';
+
+const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, {
+  apiVersion: '2025-08-27.basil',
+});
+
 const createSubscriptionPricingRuleIntoDb = async (
   userId: string,
   data: {
@@ -43,6 +49,29 @@ const createSubscriptionPricingRuleIntoDb = async (
     throw new AppError(httpStatus.NOT_FOUND, 'Subscription offer not found');
   }
 
+  // Create Stripe coupon for amount-based discount
+  let stripeCouponId: string | null = null;
+  
+  if (data.discountAmount && data.discountAmount > 0) {
+    try {
+      const coupon = await stripe.coupons.create({
+        amount_off: Math.round(data.discountAmount * 100), // Convert to cents
+        currency: 'usd', // Update with your currency
+        name: data.name,
+        duration: 'once', // or 'repeating' / 'forever' based on your needs
+        max_redemptions: data.maxSubscribers || undefined,
+        redeem_by: data.endDate ? Math.floor(new Date(data.endDate).getTime() / 1000) : undefined,
+      });
+      
+      stripeCouponId = coupon.id;
+    } catch (error) {
+      throw new AppError(
+        httpStatus.INTERNAL_SERVER_ERROR,
+        `Failed to create Stripe coupon: ${error instanceof Error ? error.message : 'Unknown error'}`,
+      );
+    }
+  }
+
   // Create pricing rule in transaction
   const result = await prisma.$transaction(async tx => {
     const pricingRule = await tx.subscriptionPricingRule.create({
@@ -51,13 +80,14 @@ const createSubscriptionPricingRuleIntoDb = async (
         subscriptionOfferId: data.subscriptionOfferId,
         name: data.name,
         type: data.type,
-        discountPercent: data.discountPercent,
+        // discountPercent: data.discountPercent,
         discountAmount: data.discountAmount,
         maxSubscribers: data.maxSubscribers,
         startDate: data.startDate ? new Date(data.startDate) : null,
         endDate: data.endDate ? new Date(data.endDate) : null,
         durationMonths: data.durationMonths,
         isActive: data.isActive ?? true,
+        stripeCouponId: stripeCouponId!,
       },
     });
 

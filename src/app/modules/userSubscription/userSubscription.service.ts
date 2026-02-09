@@ -1,6 +1,7 @@
 import prisma from '../../utils/prisma';
 import {
   PaymentStatus,
+  PricingRuleType,
   Prisma,
   UserRoleEnum,
   UserStatus,
@@ -824,120 +825,290 @@ const createCheckoutSessionInStripe = async (
   userId: string,
   data: {
     subscriptionOfferId: string;
+    pricingRuleId?: string; // Optional pricing rule
+    successUrl: string;
+    cancelUrl: string;
   },
 ) => {
-  // 1. Get user
+  // Verify user exists
   const user = await prisma.user.findUnique({
-    where: {
-      id: userId,
-      role: UserRoleEnum.TRAINER,
-      status: UserStatus.ACTIVE,
-    },
-    select: {
-      id: true,
-      fullName: true,
-      email: true,
-      stripeCustomerId: true,
+    where: { id: userId },
+    include: {
+      trainers: true,
     },
   });
 
   if (!user) {
-    throw new AppError(httpStatus.BAD_REQUEST, 'User not found or inactive');
+    throw new AppError(httpStatus.NOT_FOUND, 'User not found');
   }
 
-  // 2. Ensure Stripe customer exists
+  // Get subscription offer
+  const subscriptionOffer = await prisma.subscriptionOffer.findUnique({
+    where: { id: data.subscriptionOfferId },
+  });
+
+  if (!subscriptionOffer || !subscriptionOffer.stripePriceId) {
+    throw new AppError(
+      httpStatus.NOT_FOUND,
+      'Subscription offer not found or missing Stripe price',
+    );
+  }
+
+  // Create or get Stripe customer
   let stripeCustomerId = user.stripeCustomerId;
   if (!stripeCustomerId) {
     const customer = await stripe.customers.create({
-      email: user.email!,
-      name: user.fullName!,
+      email: user.email,
+      name: user.fullName,
       metadata: { userId: user.id },
     });
+    stripeCustomerId = customer.id;
 
     await prisma.user.update({
       where: { id: userId },
       data: { stripeCustomerId: customer.id },
     });
-
-    stripeCustomerId = customer.id;
   }
 
-  // 3. Get subscription offer
-  const subscriptionOffer = await prisma.subscriptionOffer.findUnique({
-    where: { id: data.subscriptionOfferId },
-    include: {
-      creator: {
-        select: {
-          stripeCustomerId: true,
-        },
+  // Check for applicable pricing rules
+  let applicablePricingRule = null;
+  let stripeCouponId: string | undefined = undefined;
+
+  if (data.pricingRuleId) {
+    // User selected a specific pricing rule
+    applicablePricingRule = await prisma.subscriptionPricingRule.findUnique({
+      where: { id: data.pricingRuleId },
+      include: {
+        subscriptionPricingRuleTrainers: true,
       },
-    },
-  });
+    });
 
-  if (!subscriptionOffer?.stripePriceId) {
-    throw new AppError(
-      httpStatus.BAD_REQUEST,
-      'Subscription offer or price not found',
+    if (!applicablePricingRule || !applicablePricingRule.isActive) {
+      throw new AppError(
+        httpStatus.BAD_REQUEST,
+        'Selected pricing rule is not valid or inactive',
+      );
+    }
+
+    // Validate rule eligibility
+    await validatePricingRuleEligibility(
+      userId,
+      applicablePricingRule,
+      user.trainers?.[0]?.userId,
     );
+
+    stripeCouponId = applicablePricingRule.stripeCouponId || undefined;
+  } else if (user.trainers && user.trainers.length > 0) {
+    // Auto-check for applicable rules for trainers
+    const applicableRules = await getApplicablePricingRulesForUser(
+      userId,
+      data.subscriptionOfferId,
+      user.trainers[0].userId,
+    );
+
+    if (applicableRules.length > 0) {
+      // Use the best discount (first in sorted list)
+      applicablePricingRule = applicableRules[0];
+      stripeCouponId = applicablePricingRule.stripeCouponId || undefined;
+    }
   }
 
-  // Check if user is trying to subscribe to their own plan
-  if (subscriptionOffer.creator.stripeCustomerId === stripeCustomerId) {
-    throw new AppError(
-      httpStatus.BAD_REQUEST,
-      'You cannot subscribe to your own subscription plan',
-    );
-  }
-
-  // 4. Check for existing active subscription
-  const existingSubscription = await prisma.userSubscription.findFirst({
-    where: {
-      userId: userId,
-      endDate: {
-        gt: new Date(),
-      },
-      paymentStatus: PaymentStatus.COMPLETED,
-    },
-  });
-
-  if (existingSubscription) {
-    throw new AppError(
-      httpStatus.BAD_REQUEST,
-      'An active subscription already exists for this user',
-    );
-  }
-
-  // 5. Create Checkout Session
-  const session = await stripe.checkout.sessions.create({
+  // Create checkout session
+  const sessionConfig: Stripe.Checkout.SessionCreateParams = {
     customer: stripeCustomerId,
     payment_method_types: ['card'],
-    mode: 'subscription',
     line_items: [
       {
         price: subscriptionOffer.stripePriceId,
         quantity: 1,
       },
     ],
-    success_url: `${config.backend_base_url}/payment-success?session_id={CHECKOUT_SESSION_ID}`,
-    cancel_url: `${config.backend_base_url}/payment-cancel`,
+    mode: 'subscription',
+    success_url: data.successUrl,
+    cancel_url: data.cancelUrl,
     metadata: {
       userId: userId,
       subscriptionOfferId: data.subscriptionOfferId,
+      pricingRuleId: applicablePricingRule?.id || '',
     },
     subscription_data: {
       metadata: {
         userId: userId,
         subscriptionOfferId: data.subscriptionOfferId,
+        pricingRuleId: applicablePricingRule?.id || '',
+      },
+    },
+  };
+
+  // Apply coupon if available
+  if (stripeCouponId) {
+    sessionConfig.discounts = [
+      {
+        coupon: stripeCouponId,
+      },
+    ];
+  }
+
+  const session = await stripe.checkout.sessions.create(sessionConfig);
+
+  return {
+    sessionId: session.id,
+    url: session.url,
+    appliedDiscount: applicablePricingRule
+      ? {
+          name: applicablePricingRule.name,
+          discountAmount: applicablePricingRule.discountAmount,
+          originalPrice: subscriptionOffer.price,
+          discountedPrice: applicablePricingRule.discountAmount
+            ? subscriptionOffer.price - applicablePricingRule.discountAmount
+            : subscriptionOffer.price,
+        }
+      : null,
+  };
+};
+
+// Helper function to validate pricing rule eligibility
+const validatePricingRuleEligibility = async (
+  userId: string,
+  pricingRule: any,
+  trainerId?: string,
+) => {
+  const now = new Date();
+
+  // Check if user already used this rule
+  const existingUsage = await prisma.subscriptionPricingUsage.findUnique({
+    where: {
+      pricingRuleId_userId: {
+        pricingRuleId: pricingRule.id,
+        userId: userId,
       },
     },
   });
 
-  return {
-    sessionId: session.id,
-    sessionUrl: session.url,
-  };
+  if (existingUsage) {
+    throw new AppError(
+      httpStatus.BAD_REQUEST,
+      'You have already used this pricing rule',
+    );
+  }
+
+  // Validate TIME_BASED rules
+  if (pricingRule.type === PricingRuleType.TIME_BASED) {
+    if (
+      !pricingRule.startDate ||
+      !pricingRule.endDate ||
+      now < pricingRule.startDate ||
+      now > pricingRule.endDate
+    ) {
+      throw new AppError(
+        httpStatus.BAD_REQUEST,
+        'This pricing rule is not currently active',
+      );
+    }
+  }
+
+  // Validate FIRST_COME rules
+  if (pricingRule.type === PricingRuleType.FIRST_COME) {
+    if (
+      pricingRule.maxSubscribers &&
+      pricingRule.usageCount >= pricingRule.maxSubscribers
+    ) {
+      throw new AppError(
+        httpStatus.BAD_REQUEST,
+        'This pricing rule has reached its maximum subscribers',
+      );
+    }
+  }
+
+  // Validate SPECIFIC_TRAINER rules
+  if (pricingRule.type === PricingRuleType.SPECIFIC_TRAINER) {
+    if (!trainerId) {
+      throw new AppError(
+        httpStatus.FORBIDDEN,
+        'Only trainers are eligible for this pricing rule',
+      );
+    }
+
+    const isEligibleTrainer = pricingRule.subscriptionPricingRuleTrainers.some(
+      (t: any) => t.trainerId === trainerId,
+    );
+
+    if (!isEligibleTrainer) {
+      throw new AppError(
+        httpStatus.FORBIDDEN,
+        'You are not eligible for this pricing rule',
+      );
+    }
+  }
 };
 
+// Helper function to get applicable pricing rules
+const getApplicablePricingRulesForUser = async (
+  userId: string,
+  subscriptionOfferId: string,
+  trainerId?: string,
+) => {
+  const now = new Date();
+
+  const whereConditions: any[] = [
+    {
+      subscriptionOfferId: subscriptionOfferId,
+      isActive: true,
+      type: PricingRuleType.TIME_BASED,
+      startDate: { lte: now },
+      endDate: { gte: now },
+    },
+    {
+      subscriptionOfferId: subscriptionOfferId,
+      isActive: true,
+      type: PricingRuleType.FIRST_COME,
+      OR: [
+        { maxSubscribers: null },
+        {
+          maxSubscribers: { gt: 0 },
+          usageCount: { lt: prisma.subscriptionPricingRule.fields.maxSubscribers },
+        },
+      ],
+    },
+  ];
+
+  // Add SPECIFIC_TRAINER rules if user is a trainer
+  if (trainerId) {
+    whereConditions.push({
+      subscriptionOfferId: subscriptionOfferId,
+      isActive: true,
+      type: PricingRuleType.SPECIFIC_TRAINER,
+      subscriptionPricingRuleTrainers: {
+        some: { trainerId: trainerId },
+      },
+    });
+  }
+
+  const applicableRules = await prisma.subscriptionPricingRule.findMany({
+    where: {
+      OR: whereConditions,
+    },
+    include: {
+      subscriptionPricingRuleTrainers: true,
+    },
+    orderBy: [
+      { discountAmount: 'desc' }, // Prioritize bigger discounts
+    ],
+  });
+
+  // Filter out already used rules
+  const usedRules = await prisma.subscriptionPricingUsage.findMany({
+    where: {
+      userId: userId,
+      pricingRuleId: { in: applicableRules.map(r => r.id) },
+    },
+    select: { pricingRuleId: true },
+  });
+
+  const usedRuleIds = new Set(usedRules.map(u => u.pricingRuleId));
+
+  return applicableRules.filter(rule => !usedRuleIds.has(rule.id));
+};
 const getPaymentMethodFromSession = async (sessionId: string) => {
   try {
     const session = await stripe.checkout.sessions.retrieve(sessionId, {

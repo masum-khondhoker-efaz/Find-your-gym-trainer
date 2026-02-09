@@ -5,7 +5,11 @@ import { paymentService } from './payment.service';
 import Stripe from 'stripe';
 import config from '../../../config';
 import prisma from '../../utils/prisma';
-import { PaymentStatus, SubscriptionPlanStatus } from '@prisma/client';
+import {
+  OrderStatus,
+  PaymentStatus,
+  SubscriptionPlanStatus,
+} from '@prisma/client';
 import emailSender from '../../utils/emailSender';
 import AppError from '../../errors/AppError';
 import { userSubscriptionService } from '../userSubscription/userSubscription.service';
@@ -27,33 +31,33 @@ const createPayment = catchAsync(async (req, res) => {
 });
 
 // Authorize the customer with the amount and send payment request
-const authorizedPaymentWithSaveCard = catchAsync(async (req: any, res: any) => {
-  const user = req.user as any;
-  // console.log(user)
-  const result = await paymentService.authorizePaymentWithStripeCheckout(
-    user.id,
-    req.body,
-  );
+// const authorizedPaymentWithSaveCard = catchAsync(async (req: any, res: any) => {
+//   const user = req.user as any;
+//   // console.log(user)
+//   const result = await paymentService.authorizePaymentWithStripeCheckout(
+//     user.id,
+//     req.body,
+//   );
 
-  sendResponse(res, {
-    statusCode: httpStatus.OK,
-    success: true,
-    message: 'Authorized customer and payment request successfully',
-    data: result,
-  });
-});
+//   sendResponse(res, {
+//     statusCode: httpStatus.OK,
+//     success: true,
+//     message: 'Authorized customer and payment request successfully',
+//     data: result,
+//   });
+// });
 
 // Capture the payment request and deduct the amount
-const capturePaymentRequest = catchAsync(async (req: any, res: any) => {
-  const result = await paymentService.capturePaymentRequestToStripe(req.body);
+// const capturePaymentRequest = catchAsync(async (req: any, res: any) => {
+//   const result = await paymentService.capturePaymentRequestToStripe(req.body);
 
-  sendResponse(res, {
-    statusCode: 200,
-    success: true,
-    message: 'Capture payment request and payment deduct successfully',
-    data: result,
-  });
-});
+//   sendResponse(res, {
+//     statusCode: 200,
+//     success: true,
+//     message: 'Capture payment request and payment deduct successfully',
+//     data: result,
+//   });
+// });
 
 const getPaymentList = catchAsync(async (req, res) => {
   const user = req.user as any;
@@ -109,7 +113,7 @@ const deletePayment = catchAsync(async (req, res) => {
   });
 });
 
-// ...existing code (createPayment, getPaymentList, etc.)...
+// webhook handler for Stripe events
 
 const handleWebHook = catchAsync(async (req: any, res: any) => {
   const sig = req.headers['stripe-signature'] as string;
@@ -186,166 +190,258 @@ const handleWebHook = catchAsync(async (req: any, res: any) => {
 
     case 'checkout.session.completed': {
       const session = event.data.object as Stripe.Checkout.Session;
+      console.log('Checkout session completed:', session.id);
 
-      // Handle SETUP mode (payment method collection)
-      if (session.mode === 'setup' && session.setup_intent) {
-        console.log('Setup mode checkout completed');
-
-        try {
-          const setupIntent = await stripe.setupIntents.retrieve(
-            session.setup_intent as string,
-          );
-
-          const paymentMethodId = setupIntent.payment_method as string;
-          const userId = session.metadata?.userId;
-          const subscriptionOfferId = session.metadata?.subscriptionOfferId;
-
-          console.log('Payment Method ID:', paymentMethodId);
-          console.log('User ID:', userId);
-          console.log('Subscription Offer ID:', subscriptionOfferId);
-
-          // Optional: Store this temporarily in a separate table or send notification
-          // The Flutter app should retrieve this via the getPaymentMethodFromSession endpoint
-        } catch (error) {
-          console.error('Error processing setup intent:', error);
-        }
-        break;
-      }
-
-      // Handle SUBSCRIPTION mode (new checkout flow)
-      if (session.mode === 'subscription') {
-        console.log('Subscription checkout completed');
-
+      // =================================================================
+      // SECTION 1: Handle PRODUCT ORDER Payments (mode = 'payment')
+      // =================================================================
+      if (session.mode === 'payment') {
+        const orderId = session.metadata?.orderId;
+        const productId = session.metadata?.productId;
         const userId = session.metadata?.userId;
-        const subscriptionOfferId = session.metadata?.subscriptionOfferId;
-        const subscriptionId = session.subscription as string;
 
-        if (!userId || !subscriptionOfferId || !subscriptionId) {
-          console.error('Missing metadata in subscription checkout session');
-          break;
+        // Check if this is a product order
+        if (orderId && productId && userId) {
+          console.log('Processing product order payment for order:', orderId);
+
+          try {
+            // Update order status
+            await prisma.order.update({
+              where: { id: orderId },
+              data: {
+                paymentStatus: PaymentStatus.COMPLETED,
+                status: OrderStatus.PROCESSING,
+              },
+            });
+
+            // Create payment record
+            await prisma.payment.create({
+              data: {
+                userId,
+                paymentIntentId: session.payment_intent as string,
+                paymentAmount: session.amount_total
+                  ? session.amount_total / 100
+                  : 0,
+                amountProvider: session.customer as string,
+                status: PaymentStatus.COMPLETED,
+                invoice: session.url,
+              },
+            });
+
+            // Increment product purchase count
+            await prisma.product.update({
+              where: { id: productId },
+              data: {
+                totalPurchased: { increment: 1 },
+              },
+            });
+
+            console.log('✅ Product order payment completed successfully');
+          } catch (error) {
+            console.error('❌ Error processing product order:', error);
+          }
         }
-
-        // The subscription creation will be handled by customer.subscription.created webhook
-        // This just confirms the checkout completed successfully
-        console.log(
-          '✅ Subscription checkout completed, awaiting subscription.created event',
-        );
-        break;
+        // If not an order, it might be a cart/checkout payment
+        else {
+          console.log('Regular payment session completed (not an order)');
+        }
       }
 
-      // Handle PAYMENT mode (existing product checkout logic)
-      const userId = session.metadata?.userId;
-      const shippingCost = parseFloat(
-        session.shipping_cost?.amount_total
-          ? (session.shipping_cost.amount_total / 100).toString()
-          : '0',
-      );
+      // =================================================================
+      // SECTION 2: Handle SUBSCRIPTION Payments (mode = 'subscription')
+      // =================================================================
+      else if (session.mode === 'subscription') {
+        const userId = session.metadata?.userId;
+        const subscriptionId = session.subscription as string;
+        const customerId = session.customer as string;
 
-      // const paymentMethodId = session.paym;
+        if (userId && subscriptionId) {
+          console.log('Processing subscription for user:', userId);
 
-      if (!userId) {
-        console.error('Missing metadata in Checkout Session');
-        break;
+          try {
+            // Retrieve subscription details from Stripe
+            // const subscription = await stripe.subscriptions.retrieve(subscriptionId);
+
+            // Update user subscription info
+            // await prisma.user.update({
+            //   where: { id: userId },
+            //   data: {
+            //     stripeSubscriptionId: subscriptionId,
+            //     stripeCustomerId: customerId,
+            //     isSubscribed: true,
+            //     subscriptionPlan: session.metadata?.plan as any,
+            //     subscriptionEnd: subscription.current_period_end
+            //       ? new Date(subscription.current_period_end * 1000)
+            //       : undefined,
+            //   },
+            // });
+
+            // Create or update user subscription record
+            // await prisma.userSubscription.upsert({
+            //   where: { userId },
+            //   create: {
+            //     userId,
+            //     subscriptionId,
+            //     status: 'ACTIVE',
+            //     currentPeriodStart: subscription.current_period_start
+            //       ? new Date(subscription.current_period_start * 1000)
+            //       : new Date(),
+            //     currentPeriodEnd: subscription.current_period_end
+            //       ? new Date(subscription.current_period_end * 1000)
+            //       : new Date(),
+            //   },
+            //   update: {
+            //     subscriptionId,
+            //     status: 'ACTIVE',
+            //     currentPeriodStart: subscription.current_period_start
+            //       ? new Date(subscription.current_period_start * 1000)
+            //       : undefined,
+            //     currentPeriodEnd: subscription.current_period_end
+            //       ? new Date(subscription.current_period_end * 1000)
+            //       : undefined,
+            //   },
+            // });
+
+            console.log('✅ Subscription activated successfully');
+          } catch (error) {
+            console.error('❌ Error processing subscription:', error);
+          }
+        }
       }
 
-      // const productTitle = session.metadata?.productNames as string;
+      // =================================================================
+      // SECTION 3: Handle SETUP Mode (saving payment method)
+      // =================================================================
+      else if (session.mode === 'setup') {
+        const userId = session.metadata?.userId;
+        const setupIntentId = session.setup_intent as string;
 
-      // Create or update payment record
-      let payment = await prisma.payment.findFirst({
-        where: { paymentIntentId: session.payment_intent as string },
-      });
+        if (userId && setupIntentId) {
+          console.log('Processing payment method setup for user:', userId);
 
-      if (payment) {
-        payment = await prisma.payment.update({
-          where: { id: payment.id },
-          data: {
-            status: PaymentStatus.COMPLETED,
-            paymentIntentId: session.payment_intent as string,
-            paymentAmount: session.amount_total
-              ? session.amount_total / 100
-              : 0,
-            amountProvider: session.customer as string,
-            paymentDate: new Date(),
-          },
-        });
-      } else {
-        payment = await prisma.payment.create({
-          data: {
-            userId,
-            paymentAmount: session.amount_total
-              ? session.amount_total / 100
-              : 0,
-            paymentIntentId: session.payment_intent as string,
-            invoice: session.return_url,
-            amountProvider: session.customer as string,
-            status: PaymentStatus.COMPLETED,
-          },
-        });
+          try {
+            // Retrieve setup intent to get payment method
+            const setupIntent =
+              await stripe.setupIntents.retrieve(setupIntentId);
+            const paymentMethodId = setupIntent.payment_method as string;
+
+            if (paymentMethodId) {
+              // Set as default payment method for customer
+              await stripe.customers.update(session.customer as string, {
+                invoice_settings: {
+                  default_payment_method: paymentMethodId,
+                },
+              });
+
+              console.log('✅ Payment method saved and set as default');
+            }
+          } catch (error) {
+            console.error('❌ Error processing payment method setup:', error);
+          }
+        }
       }
 
-      if (!payment) {
-        throw new AppError(httpStatus.BAD_REQUEST, 'Payment creation failed');
-      }
-
-      console.log('✅ Payment completed and database updated');
       break;
     }
 
     case 'charge.updated': {
       const charge = event.data.object as Stripe.Charge;
 
+      // Only process if charge succeeded and has a payment intent
       if (charge.status === 'succeeded' && charge.payment_intent) {
+        // Update payment record in database
         await prisma.payment.updateMany({
           where: { paymentIntentId: charge.payment_intent as string },
           data: {
             status: PaymentStatus.COMPLETED,
-            paymentDate: new Date(),
-            invoice: charge.receipt_url,
-            paymentMethodId: charge.payment_method as string,
+            invoice: charge.receipt_url || undefined,
           },
         });
-        const receiptUrl = charge.receipt_url;
-        const userName = charge.metadata?.userName;
-        const productTitle = charge.metadata?.productNames;
 
-        if (charge.billing_details?.email && receiptUrl) {
-          const html = `
+        // Check if this charge is for an ORDER (product purchase)
+        const orderId = charge.metadata?.orderId;
+
+        if (orderId) {
+          // This is a product order payment
+          console.log('Processing order charge:', orderId);
+
+          // Update order status to purchased and payment completed
+          await prisma.order.update({
+            where: { id: orderId },
+            data: {
+              paymentStatus: PaymentStatus.COMPLETED,
+              status: OrderStatus.PURCHASED,
+            },
+          });
+
+          // Send order confirmation email if email exists
+          if (charge.billing_details?.email && charge.receipt_url) {
+            const userName =
+              charge.metadata?.userName || charge.billing_details?.name;
+            const productName = charge.metadata?.productName || 'Product';
+
+            const html = `
     <div style="font-family: Arial, sans-serif; color: #333; line-height: 1.6; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #e0e0e0; border-radius: 10px;">
       <table width="100%" style="border-collapse: collapse;">
         <tr>
           <td style="background-color: #F56100; padding: 20px; text-align: center; color: #000000; border-radius: 10px 10px 0 0;">
-            <h2 style="margin: 0; font-size: 24px;">Payment Successful</h2>
+            <h2 style="margin: 0; font-size: 24px;">Order Confirmed! 🎉</h2>
           </td>
         </tr>
         <tr>
           <td style="padding: 20px;">
-            <p style="font-size: 16px;">Hello <strong>${userName || charge.billing_details?.name || 'Customer'}</strong>,</p>
-            <p style="font-size: 16px;">Your payment for the product(s) <strong>${productTitle}</strong> was successful.</p>
-            <p style="font-size: 16px;">You can view your payment receipt below:</p>
-            <div style="text-align: center; margin: 20px 0;">
-              <a href="${receiptUrl}" target="_blank" style="background-color: #F56100; color: #000000; padding: 10px 20px; border-radius: 6px; text-decoration: none;">View Receipt</a>
+            <p style="font-size: 16px;">Hello <strong>${userName || 'Valued Customer'}</strong>,</p>
+            <p style="font-size: 16px;">Thank you for your purchase! Your order has been confirmed successfully.</p>
+            
+            <div style="background-color: #f9f9f9; padding: 15px; border-radius: 8px; margin: 20px 0;">
+              <p style="margin: 5px 0;"><strong>Product:</strong> ${productName}</p>
+              <p style="margin: 5px 0;"><strong>Order ID:</strong> ${orderId}</p>
+              <p style="margin: 5px 0;"><strong>Amount:</strong> $${(charge.amount / 100).toFixed(2)}</p>
             </div>
-            <p style="font-size: 14px; color: #555;">If you have any questions, feel free to contact our support team.</p>
-            <p style="font-size: 16px; margin-top: 20px;">Thank you,<br/>VitaKinetic Team</p>
+
+            <p style="font-size: 16px;">You can view your payment receipt by clicking the button below:</p>
+            
+            <div style="text-align: center; margin: 30px 0;">
+              <a href="${charge.receipt_url}" target="_blank" style="background-color: #F56100; color: #000000; padding: 12px 30px; border-radius: 6px; text-decoration: none; display: inline-block; font-weight: bold;">View Receipt</a>
+            </div>
+
+            <p style="font-size: 14px; color: #555; border-top: 1px solid #e0e0e0; padding-top: 15px; margin-top: 20px;">
+              We'll notify you once your order is ready for delivery or access. If you have any questions, feel free to contact our support team.
+            </p>
+
+            <p style="font-size: 16px; margin-top: 30px;">
+              Best regards,<br/>
+              <strong>VitaKinetic Team</strong>
+            </p>
           </td>
         </tr>
         <tr>
           <td style="background-color: #f5f5f5; padding: 15px; text-align: center; font-size: 12px; color: #888; border-radius: 0 0 10px 10px;">
-            <p style="margin: 0;">&copy; ${new Date().getFullYear()} VitaKinetic Team. All rights reserved.</p>
+            <p style="margin: 5px 0;">&copy; ${new Date().getFullYear()} VitaKinetic. All rights reserved.</p>
+            <p style="margin: 5px 0;">This is an automated email. Please do not reply.</p>
           </td>
         </tr>
       </table>
     </div>
-  `;
+        `;
 
-          await emailSender(
-            `Your payment for ${productTitle} is successful`,
-            charge.billing_details?.email,
-            html,
-          );
+            // Send email using your emailSender function
+            await emailSender(
+              `Order Confirmation - ${productName}`,
+              charge.billing_details.email,
+              html,
+            );
+
+            console.log(
+              '✅ Order confirmation email sent to:',
+              charge.billing_details.email,
+            );
+          }
+
+          console.log('✅ Order payment completed and status updated');
+        } else {
+          console.log('✅ Regular payment charge updated');
         }
-
-        console.log('✅ Charge succeeded, payment marked as completed');
       }
       break;
     }
@@ -389,11 +485,14 @@ const handleWebHook = catchAsync(async (req: any, res: any) => {
       break;
     }
 
+    // Inside handleWebHook function, update customer.subscription.created case:
+
     case 'customer.subscription.created': {
       const subscription = event.data.object as Stripe.Subscription;
 
       const userId = subscription.metadata?.userId;
       const subscriptionOfferId = subscription.metadata?.subscriptionOfferId;
+      const pricingRuleId = subscription.metadata?.pricingRuleId;
 
       if (!userId || !subscriptionOfferId) {
         console.log('Missing metadata in subscription');
@@ -425,21 +524,40 @@ const handleWebHook = catchAsync(async (req: any, res: any) => {
           current_period_end: number;
         };
 
-      // Use the webhook-specific function
       try {
-        await userSubscriptionService.createUserSubscriptionFromWebhook(
-          userId,
-          subscriptionOfferId,
-          subscription.id,
-          subscriptionWithPeriod.current_period_start,
-          subscriptionWithPeriod.current_period_end,
-        );
+        const userSubscription =
+          await userSubscriptionService.createUserSubscriptionFromWebhook(
+            userId,
+            subscriptionOfferId,
+            subscription.id,
+            subscriptionWithPeriod.current_period_start,
+            subscriptionWithPeriod.current_period_end,
+          );
+
+        // Record pricing rule usage if applied
+        if (pricingRuleId && userSubscription) {
+          await prisma.$transaction(async tx => {
+            await tx.subscriptionPricingUsage.create({
+              data: {
+                pricingRuleId: pricingRuleId,
+                userId: userId,
+                subscriptionId: userSubscription.id,
+              },
+            });
+
+            await tx.subscriptionPricingRule.update({
+              where: { id: pricingRuleId },
+              data: { usageCount: { increment: 1 } },
+            });
+          });
+
+          console.log('✅ Pricing rule usage recorded');
+        }
+
         console.log('✅ Subscription created in database from webhook');
       } catch (error) {
         console.error('Error creating subscription from webhook:', error);
-        // Don't throw - webhook should return 200 even if DB update fails
       }
-
       // Send invoice email if active
       if (subscription.status === 'active' && subscription.latest_invoice) {
         try {
@@ -1096,8 +1214,8 @@ const handleWebHook = catchAsync(async (req: any, res: any) => {
 
 export const paymentController = {
   createPayment,
-  authorizedPaymentWithSaveCard,
-  capturePaymentRequest,
+  // authorizedPaymentWithSaveCard,
+  // capturePaymentRequest,
   getPaymentList,
   getPaymentById,
   updatePayment,

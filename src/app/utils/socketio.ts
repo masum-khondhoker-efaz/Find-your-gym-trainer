@@ -1,634 +1,388 @@
-// // src/app/utils/socketio.ts
-// import { Server as HTTPServer } from 'http';
-// import { Server as SocketIOServer, Socket } from 'socket.io';
-// import prisma from './prisma';
-// import { socketAuth } from '../middlewares/socketAuth';
-// import { SubscriptionPlanStatus, UserRoleEnum } from '@prisma/client';
+import { Server as HTTPServer } from 'http';
+import { Server as SocketIOServer, Socket } from 'socket.io';
+import prisma from './prisma';
+import { socketAuth } from '../middlewares/socketAuth';
+import { UserRoleEnum } from '@prisma/client';
 
-// const onlineUsers = new Set<string>();
-// const userSockets = new Map<string, Socket>();
+const onlineUsers = new Set<string>();
+const userSockets = new Map<string, Socket>();
 
-// export function setupSocketIO(server: HTTPServer) {
-//   const io = new SocketIOServer(server, {
-//     cors: {
-//       origin: '*',
-//     },
-//   });
+export function setupSocketIO(server: HTTPServer) {
+  const io = new SocketIOServer(server, {
+    cors: {
+      origin: '*',
+    },
+  });
 
-//   const messagesNameSpace = io.of('/messages');
+  const messagesNameSpace = io.of('/messages');
+  messagesNameSpace.use(socketAuth);
 
-//   // Apply auth middleware to namespace
-//   messagesNameSpace.use(socketAuth);
+  messagesNameSpace.on('connection', async (socket: Socket) => {
+    console.log('✅ User connected to messages namespace');
+    const user = (socket as any).user;
+    const { id } = user;
 
-//   messagesNameSpace.on('connection', async (socket: Socket) => {
-//     console.log('✅ User connected to messages namespace');
-//     const user = (socket as any).user; // comes from socketAuth
-//     const { id } = user;
+    onlineUsers.add(id);
+    userSockets.set(id, socket);
 
-//     // Add user to online users set
-//     onlineUsers.add(id);
-//     userSockets.set(id, socket);
+    messagesNameSpace.emit('userStatus', { userId: id, isOnline: true });
+    messagesNameSpace.emit('onlineUsers', Array.from(onlineUsers));
 
-//     // Notify all users about the new user's online status
-//     messagesNameSpace.emit('userStatus', { userId: id, isOnline: true });
-//     messagesNameSpace.emit('onlineUsers', Array.from(onlineUsers));
+    socket.on('disconnect', () => {
+      console.log('❌ User disconnected from messages namespace');
+      onlineUsers.delete(id);
+      userSockets.delete(id);
+      messagesNameSpace.emit('userStatus', { userId: id, isOnline: false });
+      messagesNameSpace.emit('onlineUsers', Array.from(onlineUsers));
+    });
 
-//     socket.on('disconnect', () => {
-//       console.log('❌ User disconnected from messages namespace');
-//       onlineUsers.delete(id);
-//       userSockets.delete(id);
-//       messagesNameSpace.emit('userStatus', { userId: id, isOnline: false });
-//       messagesNameSpace.emit('onlineUsers', Array.from(onlineUsers));
-//     });
+    socket.on('message', async payload => {
+      try {
+        if (!payload.receiverId || !payload.message) {
+          socket.emit('error', { message: 'Receiver ID or message is required' });
+          return;
+        }
 
-//     // userSockets.set(id, socket);
+        // Prevent self-messaging
+        if (payload.receiverId === id) {
+          socket.emit('error', { message: 'Cannot send message to yourself' });
+          return;
+        }
 
-//     socket.on('message', async payload => {
-//       try {
-//         if (!payload.receiverId || !payload.message) {
-//           console.log('Receiver ID or message is undefined');
-//           return;
-//         }
+        // Check if user is a trainer and verify subscription
+        if (user.role === UserRoleEnum.TRAINER) {
+          if (!user.isSubscribed || user.subscriptionEnd < new Date()) {
+            socket.emit('error', {
+              message: 'Active subscription required to send messages. Please subscribe to continue chatting.',
+            });
+            return;
+          }
+        }
 
-//         // Check subscription plan from user token (assumed to be set by socketAuth)
-//         const subscriptionPlan = user.subscriptionPlan; // e.g., 'free', 'premium', etc.
-//         const senderRole = user.role; // e.g., 'saloonOwner', 'barber', etc.
+        // Fetch receiver details
+        const receiver = await prisma.user.findUnique({
+          where: { id: payload.receiverId },
+          select: { 
+            id: true, 
+            role: true, 
+            isSubscribed: true, 
+            subscriptionEnd: true 
+          },
+        });
 
-//         // Fetch receiver's role
-//         const receiver = await prisma.user.findUnique({
-//           where: { id: payload.receiverId },
-//           select: { role: true },
-//         });
-//         if (!receiver) {
-//           console.log('Receiver not found');
-//           return;
-//         }
-//         const receiverRole = receiver.role;
+        if (!receiver) {
+          socket.emit('error', { message: 'Receiver not found' });
+          return;
+        }
 
-//         // If subscription is free, prevent chat between saloon owner and barber or the customer
-//         if (
-//           subscriptionPlan === SubscriptionPlanStatus.FREE &&
-//           ((senderRole === UserRoleEnum.TRAINER &&
-//             receiverRole === UserRoleEnum.BARBER) ||
-//             (senderRole === UserRoleEnum.TRAINER &&
-//               receiverRole === UserRoleEnum.CUSTOMER))
-//         ) {
-//           socket.emit('error', {
-//             message:
-//               'Chat between saloon owner and barber or customer is not allowed on free plan.',
-//           });
-//           return;
-//         }
+        // Check if receiver is a trainer and has active subscription
+        if (receiver.role === UserRoleEnum.TRAINER) {
+          if (!receiver.isSubscribed || !receiver.subscriptionEnd || receiver.subscriptionEnd < new Date()) {
+            socket.emit('error', {
+              message: 'This trainer does not have an active subscription and cannot receive messages.',
+            });
+            return;
+          }
+        }
 
-//         // BASIC_PREMIUM: can only chat with barbers, not customers
-//         if (
-//           subscriptionPlan === SubscriptionPlanStatus.BASIC_PREMIUM &&
-//           receiverRole !== UserRoleEnum.BARBER
-//         ) {
-//           socket.emit('error', {
-//             message: `With BASIC_PREMIUM, you can only chat with barbers.`,
-//           });
-//           return;
-//         }
+        // Find or create room
+        let room = await prisma.room.findFirst({
+          where: {
+            OR: [
+              { senderId: id, receiverId: payload.receiverId },
+              { senderId: payload.receiverId, receiverId: id },
+            ],
+          },
+        });
 
-//         // ADVANCED_PREMIUM: can only chat with customers, not barbers
-//         if (
-//           subscriptionPlan === SubscriptionPlanStatus.ADVANCED_PREMIUM &&
-//           receiverRole !== UserRoleEnum.CUSTOMER
-//         ) {
-//           socket.emit('error', {
-//             message: `With ADVANCED_PREMIUM, you can only chat with customers.`,
-//           });
-//           return;
-//         }
+        if (!room) {
+          room = await prisma.room.create({
+            data: {
+              senderId: id,
+              receiverId: payload.receiverId,
+            },
+          });
+        }
 
-//         // senderId and receiverId cannot be the same
-//         if (payload.receiverId === id) {
-//           console.log('Sender and receiver cannot be the same');
-//           socket.emit('error', {
-//             message: 'Sender and receiver cannot be the same',
-//           });
-//           return;
-//         }
+        // Create chat message
+        const chat = await prisma.chat.create({
+          data: {
+            senderId: id,
+            receiverId: payload.receiverId,
+            roomId: room.id,
+            message: payload.message,
+            images: payload.images || [],
+          },
+        });
 
-//         const room = await prisma.room.findFirst({
-//           where: {
-//             OR: [
-//               { senderId: id, receiverId: payload.receiverId },
-//               { senderId: payload.receiverId, receiverId: id },
-//             ],
-//           },
-//         });
-//         let roomId;
-//         if (!room) {
-//           const newRoom = await prisma.room.create({
-//             data: {
-//               senderId: id,
-//               receiverId: payload.receiverId,
-//             },
-//           });
-//           if (!newRoom) {
-//             console.log('Error saving room');
-//             return;
-//           }
-//           roomId = newRoom.id;
-//         } else {
-//           roomId = room.id;
-//         }
-//         const chat = await prisma.chat.create({
-//           data: {
-//             senderId: id,
-//             receiverId: payload.receiverId,
-//             roomId: roomId,
-//             message: payload.message,
-//           },
-//         });
-//         if (!chat) {
-//           console.log('Error saving chat');
-//           return;
-//         }
-//         const roomName = [id, payload.receiverId].sort().join('-');
-//         // Sender joins the room
-//         socket.join(roomName);
-//         // Receiver joins the room if online
-//         const receiverSocket = userSockets.get(payload.receiverId);
-//         if (receiverSocket) {
-//           receiverSocket.join(roomName);
-//         }
-//         // Emit the message to the room
-//         messagesNameSpace.to(roomName).emit('message', chat);
+        // Emit to room
+        const roomName = [id, payload.receiverId].sort().join('-');
+        socket.join(roomName);
+        
+        const receiverSocket = userSockets.get(payload.receiverId);
+        if (receiverSocket) {
+          receiverSocket.join(roomName);
+        }
 
-//         // Emit updated messageList to both sender and receiver
-//         const emitMessageList = async (userId: string) => {
-//           // Only fetch rooms where the user is sender or receiver
-//           const rooms = await prisma.room.findMany({
-//             where: {
-//               OR: [{ senderId: userId }, { receiverId: userId }],
-//             },
-//             include: {
-//               chat: {
-//                 orderBy: {
-//                   createdAt: 'desc',
-//                 },
-//                 take: 1,
-//               },
-//             },
-//           });
+        messagesNameSpace.to(roomName).emit('message', chat);
 
-//           // Collect all unique user IDs involved in these rooms
-//           const userIds = Array.from(
-//             new Set(
-//               rooms
-//                 .map(room => [room.senderId, room.receiverId])
-//                 .flat()
-//                 .filter((uid): uid is string => !!uid),
-//             ),
-//           );
+        // Update message lists
+        await emitMessageList(id);
+        if (receiverSocket && receiverSocket.connected) {
+          await emitMessageList(payload.receiverId);
+        }
 
-//           // Fetch user info for all involved users
-//           const userInfos = await prisma.user.findMany({
-//             where: {
-//               id: {
-//                 in: userIds,
-//               },
-//             },
-//             select: {
-//               id: true,
-//               fullName: true,
-//               image: true,
-//             },
-//           });
+      } catch (error) {
+        console.error('Error handling message:', error);
+        socket.emit('error', { message: 'Failed to send message' });
+      }
+    });
 
-//           const roomsWithUnreadMessages = await Promise.all(
-//             rooms.map(async room => {
-//               const unReadMessagesCount = await prisma.chat.count({
-//                 where: {
-//                   roomId: room.id,
-//                   isRead: false,
-//                   receiverId: userId,
-//                 },
-//               });
-//               return {
-//                 chat: room.chat[0], // Include only the latest chat
-//                 unReadMessagesCount,
-//                 senderName:
-//                   userInfos.find(userInfo => userInfo.id === room.receiverId)
-//                     ?.fullName || null,
-//                 senderImage:
-//                   userInfos.find(userInfo => userInfo.id === room.receiverId)
-//                     ?.image || null,
-//                 receiverName:
-//                   userInfos.find(userInfo => userInfo.id === room.senderId)
-//                     ?.fullName || null,
-//                 receiverImage:
-//                   userInfos.find(userInfo => userInfo.id === room.senderId)
-//                     ?.image || null,
-//                 lastMessageAt: room.chat[0]?.createdAt || null,
-//                 roomId: room.id,
-//               };
-//             }),
-//           );
+    socket.on('fetchChats', async payload => {
+      try {
+        if (!payload || !payload.receiverId) {
+          socket.emit('error', { message: 'Receiver ID is required' });
+          return;
+        }
 
-//           // Sort so the updated room (the one with the latest message) is on top
-//           const sortedRooms = roomsWithUnreadMessages.sort((a, b) => {
-//             // Put the room with the latest message on top
-//             if (!a.lastMessageAt && !b.lastMessageAt) return 0;
-//             if (!a.lastMessageAt) return 1;
-//             if (!b.lastMessageAt) return -1;
-//             return (
-//               new Date(b.lastMessageAt).getTime() -
-//               new Date(a.lastMessageAt).getTime()
-//             );
-//           });
+        // Check sender subscription if trainer
+        if (user.role === UserRoleEnum.TRAINER) {
+          if (!user.isSubscribed || user.subscriptionEnd < new Date()) {
+            socket.emit('error', {
+              message: 'Active subscription required to view messages.',
+            });
+            return;
+          }
+        }
 
-//           const targetSocket = userSockets.get(userId);
-//           if (targetSocket) {
-//             targetSocket.emit(
-//               'messageList',
-//               sortedRooms.length ? sortedRooms : [],
-//             );
-//           }
-//         };
+        const receiver = await prisma.user.findUnique({
+          where: { id: payload.receiverId },
+          select: {
+            id: true,
+            fullName: true,
+            image: true,
+            role: true,
+            isSubscribed: true,
+            subscriptionEnd: true,
+          },
+        });
 
-//         // Update messageList for both sender and receiver
-//         await emitMessageList(id);
-//         if (payload.receiverId !== id) {
-//           const receiverSocket = userSockets.get(payload.receiverId);
-//           if (receiverSocket && receiverSocket.connected) {
-//             await emitMessageList(payload.receiverId);
-//           } else {
-//             // Optionally, handle offline receiver (e.g., queue notification)
-//             console.log('Receiver is not online, cannot emit messageList');
-//           }
-//         }
-//       } catch (error) {
-//         console.error('Error handling message event:', error);
-//       }
-//     });
+        if (!receiver) {
+          socket.emit('error', { message: 'Receiver not found' });
+          return;
+        }
 
-//     socket.on('fetchChats', async payload => {
-//       try {
-//         if (!payload || !payload.receiverId) {
-//           console.log('Receiver ID is undefined');
-//           return;
-//         }
+        // Check receiver subscription if trainer
+        if (receiver.role === UserRoleEnum.TRAINER) {
+          if (!receiver.isSubscribed || !receiver.subscriptionEnd || receiver.subscriptionEnd < new Date()) {
+            socket.emit('error', {
+              message: 'This trainer does not have an active subscription.',
+            });
+            return;
+          }
+        }
 
-//         // Check subscription plan from user token (assumed to be set by socketAuth)
-//         const subscriptionPlan = user.subscriptionPlan; // e.g., 'free', 'premium', etc.
-//         const senderRole = user.role; // e.g., 'saloonOwner', 'barber', etc.
+        const room = await prisma.room.findFirst({
+          where: {
+            OR: [
+              { senderId: id, receiverId: payload.receiverId },
+              { senderId: payload.receiverId, receiverId: id },
+            ],
+          },
+        });
 
-//         // Fetch receiver's role and info
-//         const receiver = await prisma.user.findUnique({
-//           where: { id: payload.receiverId },
-//           select: { fullName: true, image: true, role: true },
-//         });
+        if (!room) {
+          socket.emit('noRoomFound', { message: 'No conversation found' });
+          return;
+        }
 
-//         if (!receiver) {
-//           console.log('Receiver not found');
-//           return;
-//         }
-//         const receiverRole = receiver.role;
+        // Mark messages as read
+        await prisma.chat.updateMany({
+          where: {
+            roomId: room.id,
+            receiverId: id,
+            isRead: false,
+          },
+          data: {
+            isRead: true,
+          },
+        });
 
-//         // If subscription is free, prevent chat between saloon owner and barber or customer
-//         if (
-//           subscriptionPlan === SubscriptionPlanStatus.FREE &&
-//           (senderRole === UserRoleEnum.TRAINER ||
-//             receiverRole === UserRoleEnum.TRAINER)
-//         ) {
-//           socket.emit('error', {
-//             message: `Cannot fetch chats between saloon owner and the barber or the customer if saloon owner's subscription is free.`,
-//           });
-//           return;
-//         }
+        const chats = await prisma.chat.findMany({
+          where: {
+            roomId: room.id,
+          },
+          orderBy: {
+            createdAt: 'asc',
+          },
+        });
 
-//         // BASIC_PREMIUM: can only fetch chats with barbers, not customers
-//         if (
-//           subscriptionPlan === SubscriptionPlanStatus.BASIC_PREMIUM &&
-//           receiverRole !== UserRoleEnum.BARBER
-//         ) {
-//           socket.emit('error', {
-//             message: `With BASIC_PREMIUM, you can only fetch chats with barbers.`,
-//           });
-//           return;
-//         }
+        socket.emit('chats', {
+          chats,
+          receiver: {
+            id: receiver.id,
+            name: receiver.fullName,
+            image: receiver.image,
+          },
+        });
 
-//         // ADVANCED_PREMIUM: can only fetch chats with customers, not barbers
-//         if (
-//           subscriptionPlan === SubscriptionPlanStatus.ADVANCED_PREMIUM &&
-//           receiverRole !== UserRoleEnum.CUSTOMER
-//         ) {
-//           socket.emit('error', {
-//             message: `With ADVANCED_PREMIUM, you can only fetch chats with customers.`,
-//           });
-//           return;
-//         }
+        // Join room
+        const roomName = [id, payload.receiverId].sort().join('-');
+        socket.join(roomName);
+        const receiverSocket = userSockets.get(payload.receiverId);
+        if (receiverSocket) {
+          receiverSocket.join(roomName);
+        }
 
-//         if (subscriptionPlan === SubscriptionPlanStatus.PRO_PREMIUM) {
-//           // No restriction for PRO_PREMIUM, allow fetching chats (do nothing, just proceed)
-//         }
+        // Update message lists
+        await emitMessageList(id);
 
-//         const room = await prisma.room.findFirst({
-//           where: {
-//             OR: [
-//               { senderId: id, receiverId: payload.receiverId },
-//               { senderId: payload.receiverId, receiverId: id },
-//             ],
-//           },
-//         });
-//         if (!room) {
-//           console.log('Room not found');
-//           socket.emit('noRoomFound', 'No room found');
-//           return;
-//         }
-//         // Mark all messages as read before fetching chats
-//         await prisma.chat.updateMany({
-//           where: {
-//             roomId: room.id,
-//             receiverId: id,
-//             isRead: false,
-//           },
-//           data: {
-//             isRead: true,
-//           },
-//         });
+      } catch (error) {
+        console.error('Error fetching chats:', error);
+        socket.emit('error', { message: 'Failed to fetch chats' });
+      }
+    });
 
-//         const chats = await prisma.chat.findMany({
-//           where: {
-//             roomId: room.id,
-//           },
-//           orderBy: {
-//             createdAt: 'asc',
-//           },
-//         });
+    socket.on('messageList', async () => {
+      await emitMessageList(id);
+    });
 
-//         socket.emit('chats', {
-//           chats,
-//           receiver: {
-//             name: receiver?.fullName || null,
-//             image: receiver?.image || null,
-//           },
-//         });
+    socket.on('unReadMessages', async payload => {
+      try {
+        if (!payload || !payload.receiverId) {
+          socket.emit('error', { message: 'Receiver ID is required' });
+          return;
+        }
 
-//         // Ensure both users join the room
-//         const roomName = [id, payload.receiverId].sort().join('-');
-//         socket.join(roomName);
-//         const receiverSocket = userSockets.get(payload.receiverId);
-//         if (receiverSocket) {
-//           receiverSocket.join(roomName);
-//         }
+        const room = await prisma.room.findFirst({
+          where: {
+            OR: [
+              { senderId: id, receiverId: payload.receiverId },
+              { senderId: payload.receiverId, receiverId: id },
+            ],
+          },
+        });
 
-//         // Emit updated messageList to the user
-//         const emitMessageList = async (userId: string) => {
-//           const rooms = await prisma.room.findMany({
-//             where: {
-//               OR: [{ senderId: userId }, { receiverId: userId }],
-//             },
-//             include: {
-//               chat: {
-//                 orderBy: {
-//                   createdAt: 'desc',
-//                 },
-//                 take: 1,
-//               },
-//             },
-//           });
+        if (!room) {
+          socket.emit('error', { message: 'Room not found' });
+          return;
+        }
 
-//           const userIds = Array.from(
-//             new Set(
-//               rooms
-//                 .map(room => [room.senderId, room.receiverId])
-//                 .flat()
-//                 .filter((uid): uid is string => !!uid),
-//             ),
-//           );
+        const unreadCount = await prisma.chat.count({
+          where: {
+            roomId: room.id,
+            isRead: false,
+            receiverId: id,
+          },
+        });
 
-//           const userInfos = await prisma.user.findMany({
-//             where: {
-//               id: {
-//                 in: userIds,
-//               },
-//             },
-//             select: {
-//               id: true,
-//               fullName: true,
-//               image: true,
-//             },
-//           });
+        if (unreadCount === 0) {
+          socket.emit('noUnreadMessages', { message: 'No unread messages' });
+          return;
+        }
 
-//           const roomsWithUnreadMessages = await Promise.all(
-//             rooms.map(async room => {
-//               const unReadMessagesCount = await prisma.chat.count({
-//                 where: {
-//                   roomId: room.id,
-//                   isRead: false,
-//                   receiverId: userId,
-//                 },
-//               });
-//               return {
-//                 chat: room.chat[0],
-//                 unReadMessagesCount,
-//                 senderName:
-//                   userInfos.find(userInfo => userInfo.id === room.receiverId)
-//                     ?.fullName || null,
-//                 senderImage:
-//                   userInfos.find(userInfo => userInfo.id === room.receiverId)
-//                     ?.image || null,
-//                 receiverName:
-//                   userInfos.find(userInfo => userInfo.id === room.senderId)
-//                     ?.fullName || null,
-//                 receiverImage:
-//                   userInfos.find(userInfo => userInfo.id === room.senderId)
-//                     ?.image || null,
-//                 lastMessageAt: room.chat[0]?.createdAt || null,
-//                 roomId: room.id,
-//               };
-//             }),
-//           );
+        const unreadMessages = await prisma.chat.findMany({
+          where: {
+            roomId: room.id,
+            isRead: false,
+            receiverId: id,
+          },
+        });
 
-//           const sortedRooms = roomsWithUnreadMessages.sort((a, b) => {
-//             if (!a.lastMessageAt && !b.lastMessageAt) return 0;
-//             if (!a.lastMessageAt) return 1;
-//             if (!b.lastMessageAt) return -1;
-//             return (
-//               new Date(b.lastMessageAt).getTime() -
-//               new Date(a.lastMessageAt).getTime()
-//             );
-//           });
+        socket.emit('unReadMessages', { messages: unreadMessages, count: unreadCount });
 
-//           const targetSocket = userSockets.get(userId);
-//           if (targetSocket) {
-//             targetSocket.emit(
-//               'messageList',
-//               sortedRooms.length ? sortedRooms : [],
-//             );
-//           }
-//         };
+      } catch (error) {
+        console.error('Error fetching unread messages:', error);
+        socket.emit('error', { message: 'Failed to fetch unread messages' });
+      }
+    });
 
-//         await emitMessageList(id);
-//       } catch (error) {
-//         console.error('Error fetching chats:', error);
-//       }
-//     });
+    async function emitMessageList(userId: string) {
+      try {
+        const rooms = await prisma.room.findMany({
+          where: {
+            OR: [{ senderId: userId }, { receiverId: userId }],
+          },
+          include: {
+            chat: {
+              orderBy: {
+                createdAt: 'desc',
+              },
+              take: 1,
+            },
+          },
+        });
 
-//     socket.on('unReadMessages', async payload => {
-//       try {
-//         if (!payload || !payload.receiverId) {
-//           console.log('Receiver ID is undefined');
-//           return;
-//         }
-//         const room = await prisma.room.findFirst({
-//           where: {
-//             OR: [
-//               { senderId: id, receiverId: payload.receiverId },
-//               { senderId: payload.receiverId, receiverId: id },
-//             ],
-//           },
-//         });
-//         if (!room) {
-//           console.log('Room not found');
-//           return;
-//         }
-//         const chats = await prisma.chat.findMany({
-//           where: {
-//             roomId: room.id,
-//             isRead: false,
-//             receiverId: id,
-//           },
-//         });
-//         const unReadMessagesCount = await prisma.chat.count({
-//           where: {
-//             roomId: room.id,
-//             isRead: false,
-//             receiverId: id,
-//           },
-//         });
-//         if (unReadMessagesCount === 0) {
-//           socket.emit('noUnreadMessages', 'No unread messages left');
-//           return;
-//         }
-//         socket.emit('unReadMessages', chats, unReadMessagesCount);
-//       } catch (error) {
-//         console.error('Error fetching unReadMessages:', error);
-//       }
-//     });
+        const userIds = Array.from(
+          new Set(
+            rooms
+              .map(room => [room.senderId, room.receiverId])
+              .flat()
+              .filter((uid): uid is string => !!uid),
+          ),
+        );
 
-//     socket.on('messageList', async () => {
-//       try {
-//         // Only fetch rooms where the user is sender or receiver
-//         const rooms = await prisma.room.findMany({
-//           where: {
-//             OR: [{ senderId: id }, { receiverId: id }],
-//           },
-//           include: {
-//             chat: {
-//               orderBy: {
-//                 createdAt: 'desc',
-//               },
-//               take: 1,
-//             },
-//           },
-//         });
+        const userInfos = await prisma.user.findMany({
+          where: {
+            id: { in: userIds },
+          },
+          select: {
+            id: true,
+            fullName: true,
+            image: true,
+            role: true,
+          },
+        });
 
-//         // Collect all unique user IDs involved in these rooms
-//         const userIds = Array.from(
-//           new Set(
-//             rooms
-//               .map(room => [room.senderId, room.receiverId])
-//               .flat()
-//               .filter((uid): uid is string => !!uid),
-//           ),
-//         );
+        const currentUser = userInfos.find(u => u.id === userId);
 
-//         // Fetch user info for all involved users
-//         const userInfos = await prisma.user.findMany({
-//           where: {
-//             id: {
-//               in: userIds,
-//             },
-//           },
-//           select: {
-//             id: true,
-//             fullName: true,
-//             image: true,
-//             subscriptionPlan: true,
-//             role: true,
-//           },
-//         });
+        const roomsWithUnreadMessages = await Promise.all(
+          rooms.map(async room => {
+            const unReadMessagesCount = await prisma.chat.count({
+              where: {
+                roomId: room.id,
+                isRead: false,
+                receiverId: userId,
+              },
+            });
 
-//         let filteredRooms = rooms;
+            const otherUserId =
+              room.senderId === userId ? room.receiverId : room.senderId;
+            const otherUser = userInfos.find(u => u.id === otherUserId);
 
-//         // Apply filtering based on saloon owner's subscription plan
-//         if (user.role === UserRoleEnum.TRAINER) {
-//           if (user.subscriptionPlan === SubscriptionPlanStatus.BASIC_PREMIUM) {
-//             // Only show rooms with barbers
-//             filteredRooms = rooms.filter(room => {
-//               const otherUserId =
-//                 room.senderId === id ? room.receiverId : room.senderId;
-//               const otherUser = userInfos.find(u => u.id === otherUserId);
-//               return otherUser?.role === UserRoleEnum.BARBER;
-//             });
-//           } else if (
-//             user.subscriptionPlan === SubscriptionPlanStatus.ADVANCED_PREMIUM
-//           ) {
-//             // Only show rooms with customers
-//             filteredRooms = rooms.filter(room => {
-//               const otherUserId =
-//                 room.senderId === id ? room.receiverId : room.senderId;
-//               const otherUser = userInfos.find(u => u.id === otherUserId);
-//               return otherUser?.role === UserRoleEnum.CUSTOMER;
-//             });
-//           }
-//           // PRO_PREMIUM: no restriction
-//         }
+            return {
+              chat: room.chat[0],
+              unReadMessagesCount,
+              senderName: currentUser?.fullName || null,
+              senderImage: currentUser?.image || null,
+              receiverName: otherUser?.fullName || null,
+              receiverImage: otherUser?.image || null,
+              receiverRole: otherUser?.role || null,
+              lastMessageAt: room.chat[0]?.createdAt || null,
+              roomId: room.id,
+            };
+          }),
+        );
 
-//         const roomsWithUnreadMessages = await Promise.all(
-//           filteredRooms.map(async room => {
-//             const unReadMessagesCount = await prisma.chat.count({
-//               where: {
-//                 roomId: room.id,
-//                 isRead: false,
-//                 receiverId: id,
-//               },
-//             });
+        const sortedRooms = roomsWithUnreadMessages.sort((a, b) => {
+          if (!a.lastMessageAt && !b.lastMessageAt) return 0;
+          if (!a.lastMessageAt) return 1;
+          if (!b.lastMessageAt) return -1;
+          return (
+            new Date(b.lastMessageAt).getTime() -
+            new Date(a.lastMessageAt).getTime()
+          );
+        });
 
-//             const otherUserId =
-//               room.senderId === id ? room.receiverId : room.senderId;
-//             const otherUser = userInfos.find(u => u.id === otherUserId);
+        const targetSocket = userSockets.get(userId);
+        if (targetSocket) {
+          targetSocket.emit('messageList', sortedRooms.length ? sortedRooms : []);
+        }
+      } catch (error) {
+        console.error('Error emitting message list:', error);
+      }
+    }
+  });
 
-//             return {
-//               chat: room.chat[0], // Always include latest chat
-//               unReadMessagesCount,
-//               senderName:
-//                 userInfos.find(userInfo => userInfo.id === room.receiverId)
-//                   ?.fullName || null,
-//               senderImage:
-//                 userInfos.find(userInfo => userInfo.id === room.receiverId)
-//                   ?.image || null,
-//               receiverName:
-//                 userInfos.find(userInfo => userInfo.id === room.senderId)
-//                   ?.fullName || null,
-//               receiverImage:
-//                 userInfos.find(userInfo => userInfo.id === room.senderId)
-//                   ?.image || null,
-//               saloonOwnerSubscriptionPlan:
-//                 user.role === UserRoleEnum.TRAINER
-//                   ? user.subscriptionPlan
-//                   : null,
-//               // Always include the other user's subscription plan name
-//               // otherUserSubscriptionPlan: otherUser?.subscriptionPlan || null,
-//               // lastMessageAt: room.chat[0]?.createdAt || null,
-//               // roomId: room.id,
-//             };
-//           }),
-//         );
-
-//         // Emit all rooms, even if unread count is zero
-//         socket.emit('messageList', roomsWithUnreadMessages);
-//       } catch (error) {
-//         console.error('Error fetching messageList:', error);
-//       }
-//     });
-//   });
-
-//   return io;
-// }
+  return io;
+}

@@ -78,6 +78,13 @@ model User {
   subscriptionPricingRules   SubscriptionPricingRule[]
   subscriptionPricingUsages  SubscriptionPricingUsage[]
   subscriptionAdminOverrides SubscriptionAdminOverride[]
+  orders                     Order[]
+  roomsSent                  Room[]                      @relation("SenderRelation")
+  roomsReceived              Room[]                      @relation("ReceiverRelation")
+  roomParticipants           RoomUser[]
+  chatsSent                  Chat[]                      @relation("SenderRelation")
+  chatsReceived              Chat[]                      @relation("ReceiverRelation")
+  createdRooms               Room[]                      @relation("CreatorRelation")
 
   @@map("users")
 }
@@ -118,6 +125,7 @@ model Trainer {
   favoriteTrainer                 FavoriteTrainer[]
   trainerSpecialties              TrainerSpecialty[]
   subscriptionPricingRuleTrainers SubscriptionPricingRuleTrainer[]
+  orders                          Order[]
 
   @@map("trainers")
 }
@@ -368,8 +376,29 @@ model Product {
   user             User              @relation(fields: [userId], references: [id])
   reviews          Review[]
   favoriteProducts FavoriteProduct[]
+  orders           Order[]
 
   @@map("products")
+}
+
+model Order {
+  id            String        @id @default(auto()) @map("_id") @db.ObjectId
+  userId        String        @db.ObjectId
+  productId     String        @db.ObjectId
+  trainerId     String?       @db.ObjectId
+  totalPrice    Float
+  invoice       String?
+  paymentStatus PaymentStatus
+  status        OrderStatus
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+
+  // Relationships
+  user    User     @relation(fields: [userId], references: [id])
+  product Product  @relation(fields: [productId], references: [id])
+  trainer Trainer? @relation(fields: [trainerId], references: [userId])
+
+  @@map("orders")
 }
 
 model DeletedProduct {
@@ -492,6 +521,7 @@ model SubscriptionPricingRule {
   discountAmount      Float?
   maxSubscribers      Int? // first 50 trainers
   usageCount          Int             @default(0)
+  stripeCouponId      String?
   startDate           DateTime?
   endDate             DateTime?
   durationMonths      Int?
@@ -503,6 +533,8 @@ model SubscriptionPricingRule {
   user                            User                             @relation(fields: [userId], references: [id])
   usages                          SubscriptionPricingUsage[]
   subscriptionPricingRuleTrainers SubscriptionPricingRuleTrainer[]
+
+  @@map("subscription_pricing_rules")
 }
 
 model SubscriptionPricingUsage {
@@ -519,6 +551,7 @@ model SubscriptionPricingUsage {
   subscription UserSubscription        @relation(fields: [subscriptionId], references: [id])
 
   @@unique([pricingRuleId, userId])
+  @@map("subscription_pricing_usages")
 }
 
 model SubscriptionAdminOverride {
@@ -537,6 +570,8 @@ model SubscriptionAdminOverride {
 
   subscription UserSubscription @relation(fields: [userSubscriptionId], references: [id])
   user         User             @relation(fields: [userId], references: [id])
+
+  @@map("subscription_admin_overrides")
 }
 
 model SubscriptionPricingRuleTrainer {
@@ -548,6 +583,8 @@ model SubscriptionPricingRuleTrainer {
 
   subscriptionPricingRule SubscriptionPricingRule @relation(fields: [pricingRuleId], references: [id])
   trainer                 Trainer                 @relation(fields: [trainerId], references: [userId])
+
+  @@map("subscription_pricing_rule_trainers")
 }
 
 model Payment {
@@ -584,6 +621,61 @@ model Review {
   product Product @relation(fields: [productId], references: [id])
 
   @@map("reviews")
+}
+
+model Room {
+  id               String   @id @default(auto()) @map("_id") @db.ObjectId
+  type             RoomType @default(ONE_TO_ONE) // Type: One-to-one or Group chat
+  groupName        String? // Name of the group (for group chats)
+  groupDescription String? // Description of the group (for group chats)
+  groupImage       String? // Image of the group (for group chats)
+  senderId         String?  @db.ObjectId
+  receiverId       String?  @db.ObjectId
+  creatorId        String?  @db.ObjectId
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  // Relationships
+  sender   User? @relation("SenderRelation", fields: [senderId], references: [id])
+  receiver User? @relation("ReceiverRelation", fields: [receiverId], references: [id])
+  creator  User? @relation("CreatorRelation", fields: [creatorId], references: [id])
+
+  participants RoomUser[] // Relationship to participants (RoomUser table)
+  chat         Chat[]
+
+  @@map("rooms")
+}
+
+model RoomUser {
+  id     String @id @default(auto()) @map("_id") @db.ObjectId
+  roomId String @db.ObjectId
+  userId String @db.ObjectId
+
+  // Relationships
+  room Room @relation(fields: [roomId], references: [id])
+  user User @relation(fields: [userId], references: [id])
+
+  @@unique([userId, roomId])
+  @@map("room_users")
+}
+
+model Chat {
+  id         String   @id @default(auto()) @map("_id") @db.ObjectId
+  senderId   String   @db.ObjectId
+  receiverId String?  @db.ObjectId // Nullable for group chats
+  roomId     String   @db.ObjectId
+  message    String
+  images     String[]
+  isRead     Boolean  @default(false)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  // Relationships
+  sender   User  @relation("SenderRelation", fields: [senderId], references: [id])
+  receiver User? @relation("ReceiverRelation", fields: [receiverId], references: [id]) // Optional for group chats
+  room     Room  @relation(fields: [roomId], references: [id])
+
+  @@map("chats")
 }
 
 model PrivacyPolicy {
@@ -745,10 +837,15 @@ enum UserRoleEnum {
 enum OrderStatus {
   PENDING
   PROCESSING
-  SHIPPED
-  DELIVERED
+  PURCHASED
+  COMPLETED
   CANCELLED
   RETURNED
+}
+
+enum RoomType {
+  ONE_TO_ONE
+  GROUP
 }
 
 enum PricingRuleType {
@@ -809,11 +906,6 @@ enum ReplyStatus {
 enum ReplyType {
   SUPPORT
   REPORT
-}
-
-enum RoomType {
-  ONE_TO_ONE
-  GROUP
 }
 
 enum SupportStatus {
