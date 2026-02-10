@@ -3,18 +3,18 @@ import { UserRouters } from '../modules/user/user.routes';
 import { AuthRouters } from '../modules/auth/auth.routes';
 import { specialtiesRoutes } from '../modules/specialties/specialties.routes';
 import { serviceTypesRoutes } from '../modules/serviceTypes/serviceTypes.routes';
-// import { termAndConditionRoutes } from '../modules/termAndCondition/termAndCondition.routes';
-// import { privacyPolicyRoutes } from '../modules/privacyPolicy/privacyPolicy.routes';
+import { termAndConditionRoutes } from '../modules/termAndCondition/termAndCondition.routes';
+import { privacyPolicyRoutes } from '../modules/privacyPolicy/privacyPolicy.routes';
 // import { reviewRoutes } from '../modules/review/review.routes';
 // import { categoryRoutes } from '../modules/category/category.routes';
 
-// import { aboutUsRoutes } from '../modules/aboutUs/aboutUs.routes';
+import { aboutUsRoutes } from '../modules/aboutUs/aboutUs.routes';
 // import { helpAndSupportRoutes } from '../modules/helpAndSupport/helpAndSupport.routes';
-// import { faqRoutes } from '../modules/faq/faq.routes';
+import { faqRoutes } from '../modules/faq/faq.routes';
 
 // import { checkoutRoutes } from '../modules/checkout/checkout.routes';
 // import { favoriteProductRoutes } from '../modules/favoriteProduct/favoriteProduct.routes';
-// import { foundingTeamRoutes } from '../modules/foundingTeam/foundingTeam.routes';
+import { foundingTeamRoutes } from '../modules/foundingTeam/foundingTeam.routes';
 import { adminRoutes } from '../modules/admin/admin.routes';
 import { socialRoutes } from '../modules/social/social.routes';
 import { postRoutes } from '../modules/post/post.routes';
@@ -22,7 +22,6 @@ import { likeRoutes } from '../modules/like/like.routes';
 import { commentRoutes } from '../modules/comment/comment.routes';
 import { shareRoutes } from '../modules/share/share.routes';
 import { productRoutes } from '../modules/product/product.routes';
-import { path, ref } from 'pdfkit';
 import { trainersRoutes } from '../modules/trainers/trainers.routes';
 import { favoriteTrainerRoutes } from '../modules/favoriteTrainer/favoriteTrainer.routes';
 import { favoriteProductRoutes } from '../modules/favoriteProduct/favoriteProduct.routes';
@@ -32,6 +31,8 @@ import { referralRoutes } from '../modules/referral/referral.routes';
 import { appliedReferralRoutes } from '../modules/appliedReferral/appliedReferral.routes';
 import { referralRewardSettingsRoutes } from '../modules/referralRewardSettings/referralRewardSettings.routes';
 import { subscriptionPricingRuleRoutes } from '../modules/subscriptionPricingRule/subscriptionPricingRule.routes';
+import { contactUsInfoRoutes } from '../modules/contactUsInfo/contactUsInfo.routes';
+import { newsletterSubscriberRoutes } from '../modules/newsletterSubscriber/newsletterSubscriber.routes';
 // import { contactUsInfoRoutes } from '../modules/contactUsInfo/contactUsInfo.routes';
 // import { newsletterSubscriberRoutes } from '../modules/newsletterSubscriber/newsletterSubscriber.routes';
 // import { supportRoutes } from '../modules/support/support.routes';
@@ -62,26 +63,26 @@ const moduleRoutes = [
     path: '/products',
     route: productRoutes,
   },
-  // {
-  //   path: '/terms-&-conditions',
-  //   route: termAndConditionRoutes,
-  // },
-  // {
-  //   path: '/privacy-policy',
-  //   route: privacyPolicyRoutes,
-  // },
-  // {
-  //   path: '/about-us',
-  //   route: aboutUsRoutes,
-  // },
+  {
+    path: '/terms-&-conditions',
+    route: termAndConditionRoutes,
+  },
+  {
+    path: '/privacy-policy',
+    route: privacyPolicyRoutes,
+  },
+  {
+    path: '/about-us',
+    route: aboutUsRoutes,
+  },
   // {
   //   path: '/help-and-support',
   //   route: helpAndSupportRoutes,
   // },
-  // {
-  //   path: '/faqs',
-  //   route: faqRoutes,
-  // },
+  {
+    path: '/faqs',
+    route: faqRoutes,
+  },
   // {
   //   path: '/reviews',
   //   route: reviewRoutes,
@@ -89,10 +90,6 @@ const moduleRoutes = [
   // {
   //   path: '/categories',
   //   route: categoryRoutes,
-  // },
-  // {
-  //   path: '/car-brands',
-  //   route: carBrandRoutes,
   // },
   {
     path: '/favorite-products',
@@ -103,18 +100,18 @@ const moduleRoutes = [
     route: favoriteTrainerRoutes,
   },
 
-  // {
-  //   path: '/founding-teams',
-  //   route: foundingTeamRoutes,
-  // },
-  // {
-  //   path: '/contact-us-info',
-  //   route: contactUsInfoRoutes,
-  // },
-  // {
-  //   path: '/newsletter-subscriber',
-  //   route: newsletterSubscriberRoutes,
-  // },
+  {
+    path: '/founding-teams',
+    route: foundingTeamRoutes,
+  },
+  {
+    path: '/contact-us-info',
+    route: contactUsInfoRoutes,
+  },
+  {
+    path: '/newsletter-subscriber',
+    route: newsletterSubscriberRoutes,
+  },
   // {
   //   path: '/support',
   //   route: supportRoutes,

@@ -350,6 +350,35 @@ export function setupSocketIO(server: HTTPServer) {
               room.senderId === userId ? room.receiverId : room.senderId;
             const otherUser = userInfos.find(u => u.id === otherUserId);
 
+            //need to added...
+            // Check if user is a trainer and verify subscription
+        if (user.role === UserRoleEnum.TRAINER) {
+          if (!user.isSubscribed || user.subscriptionEnd < new Date()) {
+            socket.emit('error', {
+              message: 'Active subscription required to send messages. Please subscribe to continue chatting.',
+            });
+            return;
+          }
+        }
+
+        // Fetch receiver details
+        const receiver = await prisma.user.findUnique({
+          where: { id: receiverId },
+          select: { 
+            id: true, 
+            role: true, 
+            isSubscribed: true, 
+            subscriptionEnd: true 
+          },
+        });
+
+        if (!receiver) {
+          socket.emit('error', { message: 'Receiver not found' });
+          return;
+        }
+
+        // need check here...
+
             return {
               chat: room.chat[0],
               unReadMessagesCount,

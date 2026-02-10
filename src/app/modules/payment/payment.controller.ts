@@ -30,6 +30,29 @@ const createPayment = catchAsync(async (req, res) => {
   });
 });
 
+const createAccount = catchAsync(async (req, res) => {
+  const user = req.user as any;
+  const result = await paymentService.createAccountIntoStripe(user.id);
+
+  sendResponse(res, {
+    statusCode: httpStatus.CREATED,
+    success: true,
+    message: 'Create account successfully',
+    data: result,
+  });
+});
+
+const createNewAccount = catchAsync(async (req, res) => {
+  const user = req.user as any;
+  const result = await paymentService.createNewAccountIntoStripe(user.id);
+  sendResponse(res, {
+    statusCode: httpStatus.CREATED,
+    success: true,
+    message: 'Create new account successfully',
+    data: result,
+  });
+});
+
 // Authorize the customer with the amount and send payment request
 // const authorizedPaymentWithSaveCard = catchAsync(async (req: any, res: any) => {
 //   const user = req.user as any;
@@ -1212,8 +1235,25 @@ const handleWebHook = catchAsync(async (req: any, res: any) => {
   res.status(200).send('Event received');
 });
 
+const cancelPaymentRequest = catchAsync(async (req: any, res: any) => {
+  const user = req.user as any;
+  const result = await paymentService.cancelPaymentRequestToStripe(
+    user.id,
+    req.body,
+  );
+  sendResponse(res, {
+    statusCode: 200,
+    success: true,
+    message: 'Cancel payment request successfully',
+    data: result,
+  });
+});
+
 export const paymentController = {
   createPayment,
+  createAccount,
+  createNewAccount,
+  cancelPaymentRequest,
   // authorizedPaymentWithSaveCard,
   // capturePaymentRequest,
   getPaymentList,

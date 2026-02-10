@@ -23,7 +23,6 @@ router.post(
   UserControllers.trainerRegisterUser,
 );
 
-
 router.put(
   '/verify-otp',
   validateRequest(UserValidations.verifyOtpSchema),
@@ -35,7 +34,7 @@ router.get(
   '/trainer-profile',
   auth(UserRoleEnum.TRAINER),
   UserControllers.getMyTrainerProfile,
-)
+);
 
 router.patch(
   '/update-profile',
@@ -52,8 +51,6 @@ router.patch(
   validateRequest(UserValidations.updateTrainerProfileSchema),
   UserControllers.updateTrainerProfile,
 );
-
-
 
 // router.put(
 //   '/update-shipping-address',
@@ -102,12 +99,18 @@ router.post(
 
 router.post('/delete-account', auth(), UserControllers.deleteAccount);
 
-
 router.put(
   '/update-profile-image',
   multerUploadMultiple.single('profileImage'),
   auth(),
   UserControllers.updateProfileImage,
+);
+
+router.post(
+  '/chat-image',
+  multerUploadMultiple.single('chatImage'),
+  auth(UserRoleEnum.TRAINER, UserRoleEnum.MEMBER),
+  UserControllers.chatImageUpload,
 );
 
 export const UserRouters = router;

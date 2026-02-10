@@ -5,7 +5,6 @@ import globalErrorHandler from './app/middlewares/globalErrorHandler';
 import router from './app/routes';
 import { logger, loggerConsole } from './app/middlewares/logger';
 import path from 'path';
-import bodyParser from 'body-parser';
 // import { PaymentController } from './app/modules/payment/payment.controller';
 import { helmetConfig } from './config/helemt';
 import rateLimit from 'express-rate-limit';
@@ -38,19 +37,8 @@ app.use(
       'http://localhost:3000',
       'http://localhost:5173',
       'http://localhost:5174',
-      'http://13.62.189.94:5173',
-      'http://13.62.189.94:5174',
-      'http://13.62.189.94:3000',
-      'http://13.62.189.94',
-      'http://10.10.20.60:3000',
-      'http://10.10.20.34:3000',
-      'http://10.10.20.42:5173',
-      'http://10.10.20.34:3000',
-      'http://10.10.20.13:3000',
       'https://ecommerce-website-rho-lemon.vercel.app',
       'https://ecommerce-website-alpha-olive.vercel.app',
-      'https://hatem-dashboard-iota.vercel.app',
-      'https://hatem-dashboard.vercel.app',
       'https://VitaKinetic.com',
       'https://www.VitaKinetic.com',
       'https://dashboard.VitaKinetic.com',
@@ -85,8 +73,8 @@ app.use(
 
 //parser
 app.use(cookieParser());
-app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
+app.use(express.json({ limit: '10mb' }));
+app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 app.use(helmetConfig);
 
 // app.set('trust proxy', true);

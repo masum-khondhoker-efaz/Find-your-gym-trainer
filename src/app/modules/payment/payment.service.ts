@@ -2,7 +2,12 @@ import prisma from '../../utils/prisma';
 import { UserRoleEnum, UserStatus } from '@prisma/client';
 import AppError from '../../errors/AppError';
 import httpStatus from 'http-status';
+import config from '../../../config';
+import Stripe from 'stripe';
 
+const stripe = new Stripe(config  .stripe.stripe_secret_key as string, {
+  apiVersion: '2025-08-27.basil',
+});
 const createPaymentIntoDb = async (userId: string, data: any) => {
   const result = await prisma.payment.create({
     data: {
@@ -248,6 +253,38 @@ const createPaymentIntoDb = async (userId: string, data: any) => {
 //   }
 // };
 
+const cancelPaymentRequestToStripe = async (
+  userId: string,
+  payload: {
+    bookingId: string;
+  },
+) => {
+  const { bookingId } = payload;
+  return await prisma.$transaction(async tx => {
+    const findBooking = await tx.order.findUnique({
+      where: {
+        id: bookingId,
+      },
+      include: {
+        user: {
+          select: {
+            id: true,
+            email: true,
+            address: true,
+            stripeCustomerId: true,
+          },
+        },
+      },
+    });
+    if (!findBooking) {
+      throw new AppError(httpStatus.BAD_REQUEST, 'Booking not found');
+    }
+    
+      return updateOrder;
+    
+  });
+};
+
 const getPaymentListFromDb = async (userId: string) => {
   const result = await prisma.payment.findMany();
   if (result.length === 0) {
@@ -302,6 +339,124 @@ const deletePaymentItemFromDb = async (userId: string, paymentId: string) => {
   return deletedItem;
 };
 
+const createAccountIntoStripe = async (userId: string) => {
+  const userData = await prisma.user.findUnique({
+    where: { id: userId },
+  });
+
+  if (!userData) {
+    throw new AppError(httpStatus.NOT_FOUND, 'User not found');
+  }
+
+  if (userData.stripeAccountUrl && userData.stripeCustomerId) {
+    const stripeAccountId = userData.stripeCustomerId;
+    const accountLink = await stripe.accountLinks.create({
+      account: stripeAccountId,
+      refresh_url: `${config.backend_base_url}/reauthenticate.html`,
+      return_url: `${config.backend_base_url}/onboarding-success.html`,
+      type: 'account_onboarding',
+    });
+
+    await prisma.user.update({
+      where: { id: userData.id },
+      data: {
+        stripeAccountUrl: accountLink.url,
+      },
+    });
+
+    return accountLink;
+  }
+
+  // Create a Stripe Connect account
+  const stripeAccount = await stripe.accounts.create({
+    type: 'express',
+    email: userData.email,
+    metadata: {
+      userId: userData.id,
+    },
+    capabilities: {
+      card_payments: { requested: true },
+      transfers: { requested: true },
+    },
+  });
+
+  // Generate the onboarding link for the Stripe Express account
+  const accountLink = await stripe.accountLinks.create({
+    account: stripeAccount.id,
+    refresh_url: `${config.backend_base_url}/reauthenticate.html`,
+    return_url: `${config.backend_base_url}/onboarding-success.html`,
+    type: 'account_onboarding',
+  });
+
+  const stripeAccountId = stripeAccount.id;
+
+  // Save both Stripe customerId and accountId in the database
+  const updateUser = await prisma.user.update({
+    where: { id: userData.id },
+    data: {
+      stripeAccountUrl: accountLink.url,
+      stripeAccountId: stripeAccountId,
+    },
+  });
+
+  if (!updateUser) {
+    throw new AppError(httpStatus.CONFLICT, 'Failed to save account details');
+  }
+
+  return accountLink;
+};
+
+const createNewAccountIntoStripe = async (userId: string) => {
+  // Fetch user data from the database
+  const userData = await prisma.user.findUnique({
+    where: { id: userId },
+  });
+
+  if (!userData) {
+    throw new AppError(httpStatus.NOT_FOUND, 'User not found');
+  }
+
+  let stripeAccountId = userData.stripeAccountId;
+
+  // If the user already has a Stripe account, delete it
+  if (stripeAccountId) {
+    await stripe.accounts.del(stripeAccountId); // Delete the old account
+  }
+
+  // Create a new Stripe account
+  const newAccount = await stripe.accounts.create({
+    type: 'express',
+    email: userData.email, // Use the user's email from the database
+    country: 'US', // Set the country dynamically if needed
+    capabilities: {
+      card_payments: { requested: true },
+      transfers: { requested: true },
+    },
+    metadata: {
+      userId: userData.id, // Add metadata for reference
+    },
+  });
+
+  // Generate the onboarding link for the new Stripe account
+  const accountLink = await stripe.accountLinks.create({
+    account: newAccount.id,
+    refresh_url: `${config.backend_base_url}/reauthenticate.html`,
+    return_url: `${config.backend_base_url}/onboarding-success.html`,
+    type: 'account_onboarding',
+  });
+
+  // Update the user's Stripe account ID and URL in the database
+  await prisma.user.update({
+    where: { id: userData.id },
+    data: {
+      stripeAccountId: newAccount.id,
+      stripeAccountUrl: accountLink.url,
+    },
+  });
+
+  return accountLink;
+};
+
 export const paymentService = {
   createPaymentIntoDb,
   // authorizePaymentWithStripeCheckout,
@@ -310,4 +465,7 @@ export const paymentService = {
   getPaymentByIdFromDb,
   updatePaymentIntoDb,
   deletePaymentItemFromDb,
+  createAccountIntoStripe,
+  createNewAccountIntoStripe,
+  cancelPaymentRequestToStripe
 };

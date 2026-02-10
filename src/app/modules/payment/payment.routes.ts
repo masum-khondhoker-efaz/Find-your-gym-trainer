@@ -12,10 +12,20 @@ router.post(
   validateRequest(paymentValidation.createSchema),
   paymentController.createPayment,
 );
+router.post('/create-account', auth(), paymentController.createAccount);
+
+router.post('/create-new-account', auth(), paymentController.createNewAccount);
 
 router.get('/', auth(), paymentController.getPaymentList);
 
 router.get('/:id', auth(), paymentController.getPaymentById);
+
+router.post(
+  '/cancel-payment',
+  auth(),
+  // validateRequest(cancelPaymentPayloadSchema),
+  paymentController.cancelPaymentRequest,
+);
 
 router.put(
   '/:id',

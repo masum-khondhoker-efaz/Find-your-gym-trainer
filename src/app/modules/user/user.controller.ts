@@ -271,6 +271,27 @@ const updateProfileImage = catchAsync(async (req, res) => {
   });
 });
 
+const chatImageUpload = catchAsync(async (req, res) => {
+  const user = req.user as any;
+  const file = req.file;
+  if (!file) {
+    throw new AppError(
+      httpStatus.BAD_REQUEST,
+      'Chat image file is required.',
+    );
+  }
+
+   // Upload to DigitalOcean
+  const fileUrl = await uploadFileToS3(file, 'chat-images');
+
+  sendResponse(res, {
+    statusCode: httpStatus.OK,
+    message: 'Chat image uploaded successfully',
+    data: fileUrl,
+  });
+});
+
+
 export const UserControllers = {
   registerUser,
   trainerRegisterUser,
@@ -286,6 +307,7 @@ export const UserControllers = {
   resendOtp,
   deleteAccount,
   updateProfileImage,
+  chatImageUpload,
   updateTrainerProfile,
   getMyTrainerProfile
 };

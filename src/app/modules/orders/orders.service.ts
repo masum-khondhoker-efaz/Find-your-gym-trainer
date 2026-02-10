@@ -18,143 +18,145 @@ const createOrdersIntoDb = async (
 ) => {
   const { productId, trainerId } = payload;
 
-  // Validate product exists and is active
-  const product = await prisma.product.findUnique({
-    where: { id: productId },
-    select: {
-      id: true,
-      productName: true,
-      price: true,
-      discount: true,
-      isActive: true,
-      capacity: true,
-      totalPurchased: true,
-      userId: true,
-    },
-  });
-
-  if (!product) {
-    throw new AppError(httpStatus.NOT_FOUND, 'Product not found');
-  }
-
-  if (!product.isActive) {
-    throw new AppError(httpStatus.BAD_REQUEST, 'Product is not available for purchase');
-  }
-
-  // Check capacity if applicable
-  if (product.capacity && product.totalPurchased >= product.capacity) {
-    throw new AppError(httpStatus.BAD_REQUEST, 'Product capacity reached');
-  }
-
-  // Validate trainer if provided
-  if (trainerId) {
-    const trainer = await prisma.trainer.findUnique({
-      where: { userId: trainerId },
+  return await prisma.$transaction(async (tx) => {
+    // Validate product exists and is active
+    const product = await tx.product.findUnique({
+      where: { id: productId },
+      select: {
+        id: true,
+        productName: true,
+        price: true,
+        discount: true,
+        isActive: true,
+        capacity: true,
+        totalPurchased: true,
+        userId: true,
+      },
     });
 
-    if (!trainer) {
-      throw new AppError(httpStatus.NOT_FOUND, 'Trainer not found');
+    if (!product) {
+      throw new AppError(httpStatus.NOT_FOUND, 'Product not found');
     }
-  }
 
-  // Get customer info
-  const user = await prisma.user.findUnique({
-    where: { id: userId },
-    select: {
-      email: true,
-      fullName: true,
-      stripeCustomerId: true,
-    },
-  });
+    if (!product.isActive) {
+      throw new AppError(httpStatus.BAD_REQUEST, 'Product is not available for purchase');
+    }
 
-  if (!user) {
-    throw new AppError(httpStatus.NOT_FOUND, 'User not found');
-  }
+    // Check capacity if applicable
+    if (product.capacity && product.totalPurchased >= product.capacity) {
+      throw new AppError(httpStatus.BAD_REQUEST, 'Product capacity reached');
+    }
 
-  // Calculate final price with discount
-  const originalPrice = product.price;
-  const discountPercent = product.discount || 0;
-  const discountedPrice = originalPrice - (originalPrice * discountPercent) / 100;
-  const totalPrice = discountedPrice;
+    // Validate trainer if provided
+    if (trainerId) {
+      const trainer = await tx.trainer.findUnique({
+        where: { userId: trainerId },
+      });
 
-  // Ensure Stripe Customer exists
-  let customerId = user.stripeCustomerId;
-  if (!customerId) {
-    const stripeCustomer = await stripe.customers.create({
-      email: user.email ?? undefined,
-      name: user.fullName,
-    });
+      if (!trainer) {
+        throw new AppError(httpStatus.NOT_FOUND, 'Trainer not found');
+      }
+    }
 
-    await prisma.user.update({
+    // Get customer info
+    const user = await tx.user.findUnique({
       where: { id: userId },
-      data: { stripeCustomerId: stripeCustomer.id },
+      select: {
+        email: true,
+        fullName: true,
+        stripeCustomerId: true,
+      },
     });
 
-    customerId = stripeCustomer.id;
-  }
+    if (!user) {
+      throw new AppError(httpStatus.NOT_FOUND, 'User not found');
+    }
 
-  // Create order in database
-  const order = await prisma.order.create({
-    data: {
-      userId,
-      productId,
-      trainerId,
-      totalPrice,
-      paymentStatus: PaymentStatus.PENDING,
-      status: OrderStatus.PENDING,
-    },
-  });
+    // Calculate final price with discount
+    const originalPrice = product.price;
+    const discountPercent = product.discount || 0;
+    const discountedPrice = originalPrice - (originalPrice * discountPercent) / 100;
+    const totalPrice = discountedPrice;
 
-  // Create Stripe Checkout Session
-  const session = await stripe.checkout.sessions.create({
-    mode: 'payment',
-    payment_intent_data: {
+    // Ensure Stripe Customer exists
+    let customerId = user.stripeCustomerId;
+    if (!customerId) {
+      const stripeCustomer = await stripe.customers.create({
+        email: user.email ?? undefined,
+        name: user.fullName,
+      });
+
+      await tx.user.update({
+        where: { id: userId },
+        data: { stripeCustomerId: stripeCustomer.id },
+      });
+
+      customerId = stripeCustomer.id;
+    }
+
+    // Create order in database
+    const order = await tx.order.create({
+      data: {
+        userId,
+        productId,
+        trainerId,
+        totalPrice,
+        paymentStatus: PaymentStatus.PENDING,
+        status: OrderStatus.PENDING,
+      },
+    });
+
+    // Create Stripe Checkout Session
+    const session = await stripe.checkout.sessions.create({
+      mode: 'payment',
+      payment_intent_data: {
+        metadata: {
+          userId: userId,
+          userName: user.fullName,
+          orderId: order.id,
+          productId: productId,
+          productName: product.productName,
+          trainerId: trainerId || '',
+        },
+      },
+      line_items: [
+        {
+          price_data: {
+            currency: 'usd',
+            product_data: {
+              name: product.productName,
+              description: `${product.productName} - ${product.userId}`,
+            },
+            unit_amount: Math.round(totalPrice * 100),
+          },
+          quantity: 1,
+        },
+      ],
+      customer: customerId,
+      success_url: `${config.frontend_base_url}/order-success?session_id={CHECKOUT_SESSION_ID}`,
+      cancel_url: `${config.frontend_base_url}/order-cancel`,
       metadata: {
-        userId: userId,
-        userName: user.fullName,
+        userId,
         orderId: order.id,
-        productId: productId,
-        productName: product.productName,
+        productId,
         trainerId: trainerId || '',
       },
-    },
-    line_items: [
-      {
-        price_data: {
-          currency: 'usd',
-          product_data: {
-            name: product.productName,
-            description: `${product.productName} - ${product.userId}`,
-          },
-          unit_amount: Math.round(totalPrice * 100), // Convert to cents
-        },
-        quantity: 1,
+    });
+
+    // Store session info in order
+    await tx.order.update({
+      where: { id: order.id },
+      data: {
+        invoice: session.url || undefined,
       },
-    ],
-    customer: customerId,
-    success_url: `${config.frontend_base_url}/order-success?session_id={CHECKOUT_SESSION_ID}`,
-    cancel_url: `${config.frontend_base_url}/order-cancel`,
-    metadata: {
-      userId,
+    });
+
+    return {
       orderId: order.id,
-      productId,
-      trainerId: trainerId || '',
-    },
+      redirectUrl: session.url,
+      sessionId: session.id,
+    };
   });
-
-  // Store session info in order
-  await prisma.order.update({
-    where: { id: order.id },
-    data: {
-      invoice: session.url || undefined,
-    },
-  });
-
-  return {
-    orderId: order.id,
-    redirectUrl: session.url,
-    sessionId: session.id,
-  };
 };
 
 const getOrdersListFromDb = async (userId: string, role?: string) => {

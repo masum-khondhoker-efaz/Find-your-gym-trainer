@@ -911,6 +911,7 @@ const updateProfileImageIntoDB = async (
   return updatedUser;
 };
 
+
 const trainerRegisterUserIntoDB = async (
   userId: string,
   payload: {

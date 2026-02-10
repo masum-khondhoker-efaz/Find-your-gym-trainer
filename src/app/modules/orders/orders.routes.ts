@@ -7,10 +7,10 @@ import { ordersValidation } from './orders.validation';
 const router = express.Router();
 
 router.post(
-'/',
-auth(),
-validateRequest(ordersValidation.createSchema),
-ordersController.createOrders,
+  '/',
+  auth(),
+  validateRequest(ordersValidation.createSchema),
+  ordersController.createOrders,
 );
 
 router.get('/', auth(), ordersController.getOrdersList);
@@ -18,10 +18,10 @@ router.get('/', auth(), ordersController.getOrdersList);
 router.get('/:id', auth(), ordersController.getOrdersById);
 
 router.put(
-'/:id',
-auth(),
-validateRequest(ordersValidation.updateSchema),
-ordersController.updateOrders,
+  '/:id',
+  auth(),
+  validateRequest(ordersValidation.updateSchema),
+  ordersController.updateOrders,
 );
 
 router.delete('/:id', auth(), ordersController.deleteOrders);
