@@ -5,121 +5,89 @@ import httpStatus from 'http-status';
 const createLikeIntoDb = async (userId: string, data: any) => {
   const { postId } = data;
 
-  // Verify post exists
-  const post = await prisma.post.findUnique({
-    where: {
-      id: postId,
-    },
-  });
+  return await prisma.$transaction(async (tx) => {
+    // 1️⃣ Verify post exists
+    const post = await tx.post.findUnique({
+      where: { id: postId },
+      select: { id: true },
+    });
 
-  if (!post) {
-    throw new AppError(httpStatus.NOT_FOUND, 'Post not found');
-  }
+    if (!post) {
+      throw new AppError(httpStatus.NOT_FOUND, 'Post not found');
+    }
 
-  // Check if already liked
-  const existingLike = await prisma.like.findUnique({
-    where: {
-      postId_userId: {
-        postId,
-        userId,
-      },
-    },
-  });
-
-  // If already liked, toggle it off (unlike)
-  if (existingLike) {
-    await prisma.like.delete({
+    // 2️⃣ Check existing like
+    const existingLike = await tx.like.findUnique({
       where: {
-        id: existingLike.id,
+        postId_userId: { postId, userId },
       },
     });
 
-    // Check if user has any remaining engagement on this post
-    const userComments = await prisma.comment.findFirst({
-      where: { postId, userId },
-    });
+    // 3️⃣ Check other engagements once
+    const [userComment, userShare] = await Promise.all([
+      tx.comment.findFirst({ where: { postId, userId }, select: { id: true } }),
+      tx.share.findFirst({ where: { postId, userId }, select: { id: true } }),
+    ]);
 
-    const userShares = await prisma.share.findFirst({
-      where: { postId, userId },
-    });
-
-    const hasRemainingEngagement = !!userComments || !!userShares;
-
-    // Weight for like = 1
+    const hasOtherEngagement = !!userComment || !!userShare;
     const likeWeight = 1;
 
-    // Decrement post metrics
-    await prisma.post.update({
+    //  UNLIKE FLOW
+    if (existingLike) {
+      await tx.like.delete({
+        where: { id: existingLike.id },
+      });
+
+      await tx.post.update({
+        where: { id: postId },
+        data: {
+          likeCount: { decrement: 1 },
+          impressionCount: { decrement: 1 },
+          engagementCount: { decrement: likeWeight },
+          ...(hasOtherEngagement ? {} : { reachCount: { decrement: 1 } }),
+        },
+      });
+
+      return { message: 'Post unliked', liked: false };
+    }
+
+    //  LIKE FLOW
+    const newLike = await tx.like.create({
+      data: { postId, userId },
+    });
+
+    const isFirstEngagement = !hasOtherEngagement;
+
+    await tx.post.update({
       where: { id: postId },
       data: {
-        likeCount: { decrement: 1 },
-        impressionCount: { decrement: 1 },
-        engagementCount: { decrement: likeWeight },
-        reachCount: !hasRemainingEngagement ? { decrement: 1 } : undefined,
+        likeCount: { increment: 1 },
+        impressionCount: { increment: 1 },
+        engagementCount: { increment: likeWeight },
+        ...(isFirstEngagement ? { reachCount: { increment: 1 } } : {}),
       },
     });
 
-    return { message: 'Post unliked', liked: false };
-  }
+    // Track impression (1 per day)
+    const today = new Date();
+    today.setUTCHours(0, 0, 0, 0);
 
-  // If not liked, create the like
-  const userComments = await prisma.comment.findFirst({
-    where: { postId, userId },
-  });
-
-  const userShares = await prisma.share.findFirst({
-    where: { postId, userId },
-  });
-
-  const isFirstEngagement = !userComments && !userShares;
-
-  const result = await prisma.like.create({
-    data: {
-      postId,
-      userId,
-    },
-  });
-
-  if (!result) {
-    throw new AppError(httpStatus.BAD_REQUEST, 'Like not created');
-  }
-
-  // Weight for like = 1
-  const likeWeight = 1;
-
-  // Increment post metrics
-  await prisma.post.update({
-    where: { id: postId },
-    data: {
-      likeCount: { increment: 1 },
-      impressionCount: { increment: 1 },
-      engagementCount: { increment: likeWeight },
-      reachCount: isFirstEngagement ? { increment: 1 } : undefined,
-    },
-  });
-
-  // Track impression (one per user per post per day)
-  const today = new Date();
-  today.setUTCHours(0, 0, 0, 0);
-
-  await prisma.postImpression.upsert({
-    where: {
-      postId_userId_date: {
-        postId,
-        userId,
-        date: today,
+    await tx.postImpression.upsert({
+      where: {
+        postId_userId_date: {
+          postId,
+          userId,
+          date: today,
+        },
       },
-    },
-    create: {
-      postId,
-      userId,
-      date: today,
-    },
-    update: {}, // No update needed, just ensure it exists
-  });
+      create: { postId, userId, date: today },
+      update: {},
+    });
 
-  return { ...result, liked: true };
+    return { ...newLike, liked: true };
+  });
 };
+
 
 const getLikeListFromDb = async (userId: string, postId?: string) => {
   const whereClause: any = {};

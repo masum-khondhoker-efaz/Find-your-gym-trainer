@@ -6,36 +6,44 @@ import { deleteFileFromSpace } from '../../utils/deleteImage';
 import { ISearchAndFilterOptions } from '../../interface/pagination.type';
 
 const createProductIntoDb = async (userId: string, data: any) => {
-  // Check if product with the same name already exists for the user
+  const { productName, productImage, productVideo, pdf } = data;
+
+  const cleanupFiles = async () => {
+    const files = [productImage, productVideo, pdf].filter(Boolean);
+    await Promise.all(files.map(file => deleteFileFromSpace(file)));
+  };
+
+  // Check duplicate product
   const existingProduct = await prisma.product.findFirst({
     where: {
-      userId: userId,
-      productName: data.productName,
+      userId,
+      productName,
     },
   });
 
   if (existingProduct) {
-    // delete uploaded files from the storage if any
-    await deleteFileFromSpace(data.productImage);
-    await deleteFileFromSpace(data.productVideo);
-    await deleteFileFromSpace(data.pdf);
+    await cleanupFiles();
     throw new AppError(
       httpStatus.BAD_REQUEST,
       'Product with the same name already exists',
     );
   }
 
-  const result = await prisma.product.create({
+  const product = await prisma.product.create({
     data: {
       ...data,
-      userId: userId,
+      userId,
     },
   });
-  if (!result) {
+
+  if (!product) {
+    await cleanupFiles();
     throw new AppError(httpStatus.BAD_REQUEST, 'Product not created');
   }
-  return result;
+
+  return product;
 };
+
 
 const getProductListFromDb = async (
   // userId: string,
@@ -379,20 +387,33 @@ const updateProductIntoDb = async (
   productId: string,
   data: any,
 ) => {
-  const result = await prisma.product.update({
+  const existingProduct = await prisma.product.findFirst({
     where: {
       id: productId,
-      userId: userId,
+      userId,
+    },
+  });
+
+  if (!existingProduct) {
+    throw new AppError(httpStatus.NOT_FOUND, 'Product not found');
+  }
+
+  const updatedProduct = await prisma.product.update({
+    where: {
+      id: productId,
     },
     data: {
       ...data,
     },
   });
-  if (!result) {
-    throw new AppError(httpStatus.BAD_REQUEST, 'productId, not updated');
+
+  if (!updatedProduct) {
+    throw new AppError(httpStatus.BAD_REQUEST, 'Product not updated');
   }
-  return result;
+
+  return updatedProduct;
 };
+
 
 const deleteProductItemFromDb = async (userId: string, productId: string) => {
   // Check if product exists

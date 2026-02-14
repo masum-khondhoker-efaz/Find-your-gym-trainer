@@ -4,10 +4,12 @@ import AppError from '../../errors/AppError';
 import httpStatus from 'http-status';
 
 const createSpecialtiesIntoDb = async (userId: string, data: any) => {
-  // Check if specialties with the same name already exists
+  const { specialtyName, ...restData } = data;
+
+  // Check if specialty already exists
   const existingSpecialty = await prisma.specialties.findFirst({
     where: {
-      specialtyName: data.specialtyName,
+      specialtyName,
     },
   });
 
@@ -15,17 +17,17 @@ const createSpecialtiesIntoDb = async (userId: string, data: any) => {
     return existingSpecialty;
   }
 
-  const result = await prisma.specialties.create({
+  const newSpecialty = await prisma.specialties.create({
     data: {
-      ...data,
-      userId: userId,
+      specialtyName,
+      ...restData,
+      userId,
     },
   });
-  if (!result) {
-    throw new AppError(httpStatus.BAD_REQUEST, 'specialties not created');
-  }
-  return result;
+
+  return newSpecialty;
 };
+
 
 const getSpecialtiesListFromDb = async () => {
   const result = await prisma.specialties.findMany();

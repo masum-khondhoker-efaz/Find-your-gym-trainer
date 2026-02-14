@@ -39,6 +39,14 @@ const getDashboardStatsFromDb = async (
     },
   });
 
+  // total products
+  const totalProducts = await prisma.product.count({
+    where: {
+      isActive: true,
+    },
+  });
+
+
   const targetEarningsYear: number | undefined =
     typeof earningsYearNum === 'number' && !Number.isNaN(earningsYearNum)
       ? earningsYearNum
@@ -66,7 +74,7 @@ const getDashboardStatsFromDb = async (
   // totalEarnings: constrain by earningsYear if provided, otherwise overall
   const totalEarnings = await prisma.order.aggregate({
     _sum: {
-      totalAmount: true,
+      totalPrice: true,
     },
     ...(targetEarningsYear
       ? {
@@ -194,7 +202,6 @@ const getDashboardStatsFromDb = async (
     [UserRoleEnum.MEMBER, UserRoleEnum.TRAINER].forEach(role => {
       const count = recentUsers.filter(
         u =>
-          u.roles.some(r => r.role?.name === role) &&
           u.createdAt.getFullYear() === month.year &&
           u.createdAt.getMonth() === month.month,
       ).length;
@@ -209,7 +216,8 @@ const getDashboardStatsFromDb = async (
   return {
     totalUsers,
     totalTrainers,
-    totalEarnings: totalEarnings._sum.totalAmount || 0,
+    totalProducts,
+    totalEarnings: totalEarnings._sum.totalPrice || 0,
     earningGrowth: monthsEarnings.map(m => ({
       label: m.label,
       total: m.total,

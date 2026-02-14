@@ -85,6 +85,8 @@ model User {
   chatsSent                  Chat[]                      @relation("SenderRelation")
   chatsReceived              Chat[]                      @relation("ReceiverRelation")
   createdRooms               Room[]                      @relation("CreatorRelation")
+  supports                   Support[]
+  favoriteGyms               FavoriteGyms[]
 
   @@map("users")
 }
@@ -303,6 +305,19 @@ model Share {
   user User @relation(fields: [userId], references: [id])
 
   @@map("shares")
+}
+
+model FavoriteGyms {
+  id        String   @id @default(auto()) @map("_id") @db.ObjectId
+  userId    String   @db.ObjectId
+  gymName   String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id])
+
+  @@unique([userId, gymName]) 
+  @@map("favorite_gyms")
 }
 
 model PostImpression {
@@ -778,15 +793,18 @@ model NewsletterSubscriber {
 
 model Support {
   id        String        @id @default(auto()) @map("_id") @db.ObjectId
+  userId    String?       @db.ObjectId
   userName  String?
   userEmail String
   userPhone String?
   message   String
+  type      MessageType
   status    SupportStatus @default(OPEN)
   createdAt DateTime      @default(now())
   updatedAt DateTime      @updatedAt
 
   // Relationships
+  user User? @relation(fields: [userId], references: [id])
 
   reply Reply[]
 
@@ -841,6 +859,14 @@ enum OrderStatus {
   COMPLETED
   CANCELLED
   RETURNED
+}
+
+enum MessageType {
+  GENERAL_INQUIRY
+  TECHNICAL_SUPPORT
+  PARTNERSHIP
+  FEEDBACK
+  OTHER
 }
 
 enum RoomType {
