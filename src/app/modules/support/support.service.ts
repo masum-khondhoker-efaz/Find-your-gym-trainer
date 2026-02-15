@@ -154,6 +154,124 @@ if (total === 0) {
   return formatPaginationResponse(transformedSupports, total, page, limit);
 };
 
+const getAllSupportListFromDb = async (options: ISearchAndFilterOptions) => {
+  const { page, limit, skip, sortBy, sortOrder } = calculatePagination(options);
+  // Build the complete where clause manually
+  const whereQuery: any = {};
+  // Add search conditions
+  if (options.searchTerm) {
+    whereQuery.OR = [
+      {
+        message: {
+          contains: options.searchTerm,
+          mode: 'insensitive' as const,
+        },
+      },
+      {
+        userName: {
+          contains: options.searchTerm,
+          mode: 'insensitive' as const,
+        },
+      },
+      {
+        userEmail: {
+          contains: options.searchTerm,
+          mode: 'insensitive' as const,
+        },
+      },
+      {
+        userPhone: {
+          contains: options.searchTerm,
+          mode: 'insensitive' as const,
+        },
+      },
+    ];
+  }
+
+  // Add filter conditions
+  if (options.status) {
+    whereQuery.status = options.status;
+  }
+
+  // Date range filter for creation date
+  if (options.startDate || options.endDate) {
+    whereQuery.createdAt = {};
+    if (options.startDate) {
+      whereQuery.createdAt.gte = new Date(options.startDate);
+    }
+    if (options.endDate) {
+      whereQuery.createdAt.lte = new Date(options.endDate);
+    }
+  }
+
+  // Sorting
+  const orderBy = {
+    [sortBy]: sortOrder,
+  };
+
+  // Fetch total count for pagination
+  const total = await prisma.support.count({ where: whereQuery });
+
+if (total === 0) {
+  return formatPaginationResponse([], 0, page, limit);
+}
+
+  // Fetch paginated data
+  const supports = await prisma.support.findMany({
+    where: whereQuery,
+    skip,
+    take: limit,
+    orderBy,
+    include: {
+      reply: {
+        select: {
+          id: true,
+          message: true,
+          status: true,
+          createdAt: true,
+        },
+        orderBy: {
+          createdAt: 'desc',
+        },
+      },
+      _count: {
+        select: {
+          reply: true,
+        },
+      },
+    },
+  });
+
+  // Transform data to include additional fields
+  const transformedSupports = supports.map(support => ({
+    id: support.id,
+    message: support.message,
+    userName: support.userName,
+    userEmail: support.userEmail,
+    userPhone: support.userPhone,
+    status: support.status,
+    type: support.type,
+    createdAt: support.createdAt,
+    updatedAt: support.updatedAt,
+    
+    // Reply statistics
+    totalReplies: support._count.reply,
+    hasReplies: support._count.reply > 0,
+    latestReply: support.reply.length > 0 ? support.reply[0] : null,
+    
+    // Status indicators
+    isOpen: support.status === SupportStatus.OPEN,
+    isInProgress: support.status === SupportStatus.IN_PROGRESS,
+    isClosed: support.status === SupportStatus.CLOSED,
+    
+    // All replies
+    replies: support.reply,
+  }));
+
+  return formatPaginationResponse(transformedSupports, total, page, limit);
+}
+  
+
 const getSupportByIdFromDb = async (userId: string, supportId: string) => {
   const result = await prisma.support.findUnique({
     where: {
@@ -290,6 +408,7 @@ const deleteSupportItemFromDb = async (userId: string, supportId: string) => {
 export const supportService = {
   createSupportIntoDb,
   getSupportListFromDb,
+  getAllSupportListFromDb,
   getSupportByIdFromDb,
   updateSupportIntoDb,
   deleteSupportItemFromDb,

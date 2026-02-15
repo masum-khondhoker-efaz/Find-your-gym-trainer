@@ -316,7 +316,7 @@ model FavoriteGyms {
 
   user User @relation(fields: [userId], references: [id])
 
-  @@unique([userId, gymName]) 
+  @@unique([userId, gymName])
   @@map("favorite_gyms")
 }
 
@@ -623,17 +623,21 @@ model Payment {
 }
 
 model Review {
-  id        String   @id @default(auto()) @map("_id") @db.ObjectId
-  userId    String   @db.ObjectId
-  productId String   @db.ObjectId
-  rating    Int
-  comment   String?
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  id             String   @id @default(auto()) @map("_id") @db.ObjectId
+  userId         String   @db.ObjectId
+  productId      String   @db.ObjectId
+  parentReviewId String?  @db.ObjectId
+  rating         Int?
+  comment        String
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
 
-  // Relationships
   user    User    @relation(fields: [userId], references: [id])
   product Product @relation(fields: [productId], references: [id])
+
+  parent Review? @relation("ReviewToReplies", fields: [parentReviewId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  replies Review[] @relation("ReviewToReplies")
 
   @@map("reviews")
 }

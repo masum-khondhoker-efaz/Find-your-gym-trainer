@@ -3,6 +3,7 @@ import sendResponse from '../../utils/sendResponse';
 import catchAsync from '../../utils/catchAsync';
 import { supportService } from './support.service';
 import { ISearchAndFilterOptions } from '../../interface/pagination.type';
+import { UserRoleEnum } from '@prisma/client';
 
 const createSupport = catchAsync(async (req, res) => {
   const user = req.user as any;
@@ -17,9 +18,26 @@ const createSupport = catchAsync(async (req, res) => {
 
 const getSupportList = catchAsync(async (req, res) => {
   const user = req.user as any;
+  const userRole = user.role;
 
-  
-  const result = await supportService.getSupportListFromDb(user.id, req.query as ISearchAndFilterOptions);
+  if(userRole === UserRoleEnum.SUPER_ADMIN || userRole === UserRoleEnum.ADMIN) {
+    const result = await supportService.getAllSupportListFromDb(
+      req.query as ISearchAndFilterOptions,
+    );
+    sendResponse(res, {
+      statusCode: httpStatus.OK,
+      success: true,
+      message: 'Support list retrieved successfully',
+      data: result.data,
+      meta: result.meta,
+    });
+    return;
+  }
+
+  const result = await supportService.getSupportListFromDb(
+    user.id,
+    req.query as ISearchAndFilterOptions,
+  );
   sendResponse(res, {
     statusCode: httpStatus.OK,
     success: true,
@@ -31,7 +49,10 @@ const getSupportList = catchAsync(async (req, res) => {
 
 const getSupportById = catchAsync(async (req, res) => {
   const user = req.user as any;
-  const result = await supportService.getSupportByIdFromDb(user.id, req.params.id);
+  const result = await supportService.getSupportByIdFromDb(
+    user.id,
+    req.params.id,
+  );
   sendResponse(res, {
     statusCode: httpStatus.OK,
     success: true,
@@ -42,7 +63,11 @@ const getSupportById = catchAsync(async (req, res) => {
 
 const updateSupport = catchAsync(async (req, res) => {
   const user = req.user as any;
-  const result = await supportService.updateSupportIntoDb(user.id, req.params.id, req.body);
+  const result = await supportService.updateSupportIntoDb(
+    user.id,
+    req.params.id,
+    req.body,
+  );
   sendResponse(res, {
     statusCode: httpStatus.OK,
     success: true,
@@ -53,7 +78,10 @@ const updateSupport = catchAsync(async (req, res) => {
 
 const deleteSupport = catchAsync(async (req, res) => {
   const user = req.user as any;
-  const result = await supportService.deleteSupportItemFromDb(user.id, req.params.id);
+  const result = await supportService.deleteSupportItemFromDb(
+    user.id,
+    req.params.id,
+  );
   sendResponse(res, {
     statusCode: httpStatus.OK,
     success: true,

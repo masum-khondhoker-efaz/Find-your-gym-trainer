@@ -15,6 +15,12 @@ router.post(
 
 router.get(
   '/',
+  auth(),
+  supportController.getSupportList,
+);
+
+router.get(
+  '/all-tickets',
   auth(UserRoleEnum.SUPER_ADMIN, UserRoleEnum.ADMIN),
   supportController.getSupportList,
 );
