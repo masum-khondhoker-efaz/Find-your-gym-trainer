@@ -12,73 +12,42 @@ const createCheckoutIntoDb = async (
     throw new AppError(httpStatus.BAD_REQUEST, 'User ID is required');
   }
 
-  // check the products are own or not if own then throw error
-  const userProducts = await prisma.product.findMany({
-    where: { isVisible: true, seller: { userId: userId } },
-    select: { id: true },
-  });
-  const userProductIds = new Set(userProducts.map(prod => prod.id));
-
-  // If specific productIds provided, validate those
-  if (data.productIds && data.productIds.length > 0) {
-    for (const pid of data.productIds) {
-      if (userProductIds.has(pid)) {
-        throw new AppError(
-          httpStatus.BAD_REQUEST,
-          `Cannot add your own product to cart: ${pid}`,
-        );
-      }
-    }
-  } else if (data.all) {
-    // If 'all' was requested, fetch the cart and validate its items
-    const cartForCheck = await prisma.cart.findFirst({
-      where: { userId },
-      include: { items: { select: { productId: true } } },
-    });
-    const cartItemProductIds = cartForCheck?.items.map(i => i.productId) ?? [];
-    for (const pid of cartItemProductIds) {
-      if (userProductIds.has(pid)) {
-        throw new AppError(
-          httpStatus.BAD_REQUEST,
-          `Cannot add your own product to cart: ${pid}`,
-        );
-      }
-    }
+  if (!data.all && (!data.productIds || data.productIds.length === 0)) {
+    throw new AppError(
+      httpStatus.BAD_REQUEST,
+      'Provide either all=true or specific productIds',
+    );
   }
 
-  return await prisma.$transaction(async tx => {
-    // delete existing checkout and items if any
-    await tx.checkoutItem.deleteMany({
-      where: { checkout: { userId } },
-    });
-    await tx.checkout.deleteMany({
-      where: { userId },
-    });
-
-    // 1. Get user's cart and items
+  return await prisma.$transaction(async (tx) => {
+    // 1️⃣ Fetch cart with items + product + seller
     const cart = await tx.cart.findFirst({
       where: { userId },
-      include: { items: { include: { product: true } } },
+      include: {
+        items: {
+          include: {
+            product: {
+              include: {
+                seller: {
+                  select: { userId: true },
+                },
+              },
+            },
+          },
+        },
+      },
     });
 
     if (!cart || cart.items.length === 0) {
       throw new AppError(httpStatus.BAD_REQUEST, 'Cart is empty');
     }
 
-    // 2. Decide which items to checkout
-    let selectedItems;
-    if (data.all) {
-      selectedItems = cart.items;
-    } else if (data.productIds && data.productIds.length > 0) {
-      selectedItems = cart.items.filter(item =>
-        data.productIds?.includes(item.productId),
-      );
-    } else {
-      throw new AppError(
-        httpStatus.BAD_REQUEST,
-        'Provide either all=true or specific productIds',
-      );
-    }
+    // 2️⃣ Select checkout items
+    const selectedItems = data.all
+      ? cart.items
+      : cart.items.filter((item) =>
+          data.productIds?.includes(item.productId),
+        );
 
     if (selectedItems.length === 0) {
       throw new AppError(
@@ -87,28 +56,48 @@ const createCheckoutIntoDb = async (
       );
     }
 
-    // 3. Validate stock for each item and calculate total amount with discount
     let totalAmount = 0;
-    for (const item of selectedItems as any[]) {
+
+    for (const item of selectedItems) {
       const qty = item.quantity ?? 1;
+
       if (qty < 1) {
-        throw new AppError(httpStatus.BAD_REQUEST, 'Invalid quantity in cart');
+        throw new AppError(httpStatus.BAD_REQUEST, 'Invalid quantity');
       }
+
+      // 3️⃣ Prevent buying own product
+      if (item.product.seller.userId === userId) {
+        throw new AppError(
+          httpStatus.BAD_REQUEST,
+          `Cannot purchase your own product`,
+        );
+      }
+
+      // 4️⃣ Stock validation
       if (qty > item.product.stock) {
         throw new AppError(
           httpStatus.BAD_REQUEST,
-          `Insufficient stock for product ${item.productId}`,
+          `Insufficient stock for ${item.product.productName}`,
         );
       }
-      // Calculate discounted price
-      const originalPrice = item.product.price || 0;
-      const discountPercent = item.product.discount || 0;
-      const discountedPrice =
-        originalPrice - (originalPrice * discountPercent) / 100;
+
+      const price = item.product.price || 0;
+      const discount = item.product.discount || 0;
+      const discountedPrice = price - (price * discount) / 100;
+
       totalAmount += discountedPrice * qty;
     }
 
-    // 4. Create checkout record
+    // 5️⃣ Remove old checkout (if exists)
+    await tx.checkoutItem.deleteMany({
+      where: { checkout: { userId } },
+    });
+
+    await tx.checkout.deleteMany({
+      where: { userId },
+    });
+
+    // 6️⃣ Create checkout
     const checkout = await tx.checkout.create({
       data: {
         userId,
@@ -117,24 +106,17 @@ const createCheckoutIntoDb = async (
       },
     });
 
-    // 5. Create checkout items
+    // 7️⃣ Create checkout items
     await tx.checkoutItem.createMany({
-      data: selectedItems.map((item: any) => ({
+      data: selectedItems.map((item) => ({
         checkoutId: checkout.id,
         productId: item.productId,
         quantity: item.quantity,
+        priceSnapshot: item.product.price, // IMPORTANT (see below)
       })),
     });
 
-    // 6. Remove purchased items from cart
-    // await tx.cartItem.deleteMany({
-    //   where: {
-    //     id: { in: selectedItems.map(item => item.id) },
-    //   },
-    // });
-
-    // 7. Return the checkout with items and product details
-    return await tx.checkout.findUnique({
+    return tx.checkout.findUnique({
       where: { id: checkout.id },
       include: {
         items: {
@@ -154,13 +136,14 @@ const createCheckoutIntoDb = async (
   });
 };
 
+
 // Mark checkout as PAID
 const markCheckoutPaid = async (
   userId: string,
   checkoutId: string,
   paymentId?: string,
 ) => {
-  // Fetch checkout and its items
+  // 1️⃣ Fetch checkout with items and user
   const checkout = await prisma.checkout.findUnique({
     where: { id: checkoutId },
     include: {
@@ -170,27 +153,12 @@ const markCheckoutPaid = async (
   });
 
   if (!checkout) throw new AppError(httpStatus.NOT_FOUND, 'Checkout not found');
-  // validate ownership
-  if (checkout.userId !== userId) {
-    throw new AppError(httpStatus.NOT_FOUND, 'Checkout not found');
-  }
-  // validate status
-  if (checkout.status === CheckoutStatus.PAID) {
-    throw new AppError(httpStatus.BAD_REQUEST, 'Checkout already paid');
-  }
-  if (checkout.status !== CheckoutStatus.PENDING) {
-    throw new AppError(
-      httpStatus.BAD_REQUEST,
-      'Checkout is not in a payable state',
-    );
-  }
+  if (checkout.userId !== userId) throw new AppError(httpStatus.NOT_FOUND, 'Checkout not found');
+  if (checkout.status === CheckoutStatus.PAID) throw new AppError(httpStatus.BAD_REQUEST, 'Checkout already paid');
+  if (checkout.status !== CheckoutStatus.PENDING) throw new AppError(httpStatus.BAD_REQUEST, 'Checkout is not in a payable state');
+  if (!checkout.items || checkout.items.length === 0) throw new AppError(httpStatus.BAD_REQUEST, 'Checkout has no items');
 
-  // Sanity check: must have items
-  if (!checkout.items || checkout.items.length === 0) {
-    throw new AppError(httpStatus.BAD_REQUEST, 'Checkout has no items');
-  }
-
-  // VALIDATE: All items must have shipping selected
+  // 2️⃣ Validate shipping for all items
   const itemsWithoutShipping = checkout.items.filter(
     item => !item.shippingOptionId || !item.shippingCost,
   );
@@ -201,67 +169,44 @@ const markCheckoutPaid = async (
     );
   }
 
-  const shippingAddress = await prisma.address.findFirst({
-    where: {
-      userId: userId,
-      type: 'SHIPPING',
-    },
-  });
+  // 3️⃣ Fetch addresses
+  const shippingAddress = await prisma.address.findFirst({ where: { userId, type: 'SHIPPING' } });
+  if (!shippingAddress) throw new AppError(httpStatus.BAD_REQUEST, 'Shipping address not found for checkout');
 
-  if (!shippingAddress) {
-    throw new AppError(
-      httpStatus.BAD_REQUEST,
-      'Shipping address not found for checkout',
-    );
-  }
-  let billingAddress = await prisma.address.findFirst({
-    where: {
-      userId: userId,
-      type: 'BILLING',
-    },
-  });
+  let billingAddress = await prisma.address.findFirst({ where: { userId, type: 'BILLING' } });
+  if (!billingAddress) billingAddress = shippingAddress;
 
-  if (!billingAddress) {
-    billingAddress = shippingAddress;
-  }
-
-  // Group items by seller for multi-vendor order creation
+  // 4️⃣ Group items by seller
   const itemsBySeller = checkout.items.reduce((acc, item) => {
     const sellerId = item.product.sellerId;
-    if (!acc[sellerId]) {
-      acc[sellerId] = [];
-    }
+    if (!acc[sellerId]) acc[sellerId] = [];
     acc[sellerId].push(item);
     return acc;
   }, {} as Record<string, typeof checkout.items>);
 
+  // 5️⃣ Transaction
   return await prisma.$transaction(async tx => {
-    const createdOrders = [];
+    const createdOrders: any[] = [];
 
-    // Create separate order for each seller
     for (const [sellerId, sellerItems] of Object.entries(itemsBySeller)) {
-      // Calculate seller order total and prepare order items
       let sellerTotal = 0;
       let totalProductAmount = 0;
       let totalShippingAmount = 0;
-      const orderItems = [];
+      const orderItems: any[] = [];
       const productDetails: string[] = [];
       const shippingDetails: string[] = [];
 
       for (const item of sellerItems as any[]) {
-        const price = item.product?.price ?? 0;
-        const discount = item.product?.discount ?? 0;
-        const effectivePrice =
-          typeof discount === 'number' && discount > 0 && discount < 100
-            ? Number((price * (1 - discount / 100)).toFixed(2))
-            : price;
+        const price = item.product.price ?? 0;
+        const discount = item.product.discount ?? 0;
+        const effectivePrice = discount > 0 && discount < 100 ? Number((price * (1 - discount / 100)).toFixed(2)) : price;
 
-        const itemSubtotal = effectivePrice * item.quantity;
-        const itemShipping = item.shippingCost || 0;
-        
-        totalProductAmount += itemSubtotal;
-        totalShippingAmount += itemShipping;
-        sellerTotal += itemSubtotal + itemShipping;
+        const subtotal = effectivePrice * item.quantity;
+        const shippingCost = item.shippingCost ?? 0;
+
+        totalProductAmount += subtotal;
+        totalShippingAmount += shippingCost;
+        sellerTotal += subtotal + shippingCost;
 
         orderItems.push({
           productId: item.productId,
@@ -269,105 +214,62 @@ const markCheckoutPaid = async (
           price: effectivePrice,
         });
 
-        // Detailed product line: "Product Name x2 @ $50.00 = $100.00"
-        productDetails.push(
-          `${item.product.productName} x${item.quantity} @ DZD${effectivePrice.toFixed(2)} = DZD${itemSubtotal.toFixed(2)}`
-        );
-
-        // Detailed shipping line: "Product Name: DHL $15.00 (3-5 days)"
-        shippingDetails.push(
-          `${item.product.productName}: ${item.shippingCarrier || 'N/A'} DZD${itemShipping.toFixed(2)} (${item.estimatedDelivery || 'N/A'})`
-        );
+        productDetails.push(`${item.product.productName} x${item.quantity} @ DZD${effectivePrice.toFixed(2)} = DZD${subtotal.toFixed(2)}`);
+        shippingDetails.push(`${item.product.productName}: ${item.shippingCarrier || 'N/A'} DZD${shippingCost.toFixed(2)} (${item.estimatedDelivery || 'N/A'})`);
       }
 
-      // Prepare invoice data for this seller
-      const sellerUser = await tx.user.findUnique({
-        where: { id: sellerId },
-        include: {
-          sellerProfile: true,
-        },
-      });
+      // Seller info
+      const sellerUser = await tx.user.findUnique({ where: { id: sellerId }, include: { sellerProfile: true } });
 
-      // BUYER RECEIPT - Full purchase details
+      // Buyer invoice
       const buyerInvoice = {
         'Invoice Type': 'Purchase Receipt',
         'Invoice Number': paymentId || 'Cash Payment',
         'Invoice Date': new Date().toLocaleDateString(),
-        'Order ID': '', // Will be set after order creation
-        
-        // Seller Info (who they bought from)
+        'Order ID': '',
         Seller: sellerUser?.sellerProfile?.companyName || 'Unknown',
         'Seller Email': sellerUser?.email || '',
-        'Seller Contact': sellerUser?.sellerProfile?.contactInfo  || '',
-        
-        // Buyer Info
+        'Seller Contact': sellerUser?.sellerProfile?.contactInfo || '',
         Buyer: checkout.user.fullName,
         'Buyer Email': checkout.user.email,
         'Buyer Contact': checkout.user.phoneNumber || '',
-        
-        // Product Details
         'Product Details': productDetails.join(' | '),
-        'Product IDs': sellerItems.map((item: any) => item.productId).join(', '),
-        'Subtotal (Products)(DZD)': `${totalProductAmount.toFixed(2)}`,
-        
-        // Shipping Details
+        'Product IDs': sellerItems.map(i => i.productId).join(', '),
+        'Subtotal (Products)(DZD)': totalProductAmount.toFixed(2),
         'Shipping Details': shippingDetails.join(' | '),
-        'Total Shipping(DZD)': `${totalShippingAmount.toFixed(2)}`,
-        
-        // Totals
-        'Total Amount(DZD)': `${sellerTotal.toFixed(2)}`,
+        'Total Shipping(DZD)': totalShippingAmount.toFixed(2),
+        'Total Amount(DZD)': sellerTotal.toFixed(2),
         'Payment Method': paymentId ? 'Online Payment' : 'Cash on Delivery',
         'Payment Status': paymentId ? 'Paid' : 'Cash on Delivery',
-        
-        // Addresses
-        'Shipping Address': `${shippingAddress.addressLine}, ${shippingAddress.city}, ${
-          shippingAddress.state || ''
-        } ${shippingAddress.postalCode || ''}, ${shippingAddress.country || ''}`,
-        'Billing Address': `${billingAddress.addressLine}, ${billingAddress.city}, ${
-          billingAddress.state || ''
-        } ${billingAddress.postalCode || ''}, ${billingAddress.country || ''}`,
+        'Shipping Address': `${shippingAddress.addressLine}, ${shippingAddress.city}, ${shippingAddress.state || ''} ${shippingAddress.postalCode || ''}, ${shippingAddress.country || ''}`,
+        'Billing Address': `${billingAddress.addressLine}, ${billingAddress.city}, ${billingAddress.state || ''} ${billingAddress.postalCode || ''}, ${billingAddress.country || ''}`,
       };
 
-      // SELLER FULFILLMENT DOCUMENT - Only what seller needs
+      // Seller invoice
       const sellerInvoice = {
         'Document Type': 'Fulfillment Order',
         'Invoice Number': paymentId || 'Cash Payment',
         'Order Date': new Date().toLocaleDateString(),
-        'Order ID': '', // Will be set after order creation
-        
-        // Shipping Recipient Info (where to send)
+        'Order ID': '',
         'Ship To Name': shippingAddress.name || checkout.user.fullName,
         'Ship To Phone': shippingAddress.phoneNumber || checkout.user.phoneNumber || '',
-        'Ship To Address': `${shippingAddress.addressLine}, ${
-          shippingAddress.apartmentNo ? `Apt ${shippingAddress.apartmentNo}, ` : ''
-        }${shippingAddress.city}, ${shippingAddress.state || ''} ${
-          shippingAddress.postalCode || ''
-        }, ${shippingAddress.country || ''}`,
-        
-        // Products to Ship
+        'Ship To Address': `${shippingAddress.addressLine}, ${shippingAddress.apartmentNo ? `Apt ${shippingAddress.apartmentNo}, ` : ''}${shippingAddress.city}, ${shippingAddress.state || ''} ${shippingAddress.postalCode || ''}, ${shippingAddress.country || ''}`,
         'Items to Ship': productDetails.join(' | '),
-        'Product IDs': sellerItems.map((item: any) => item.productId).join(', '),
-        
-        // Shipping Instructions
+        'Product IDs': sellerItems.map(i => i.productId).join(', '),
         'Shipping Method': shippingDetails.join(' | '),
-        
-        // Financial Summary (what seller earns)
-        'Product Revenue(DZD)': `${totalProductAmount.toFixed(2)}`,
-        'Shipping Revenue(DZD)': `${totalShippingAmount.toFixed(2)}`,
-        'Total Revenue(DZD)': `${sellerTotal.toFixed(2)}`,
+        'Product Revenue(DZD)': totalProductAmount.toFixed(2),
+        'Shipping Revenue(DZD)': totalShippingAmount.toFixed(2),
+        'Total Revenue(DZD)': sellerTotal.toFixed(2),
         'Payment Status': paymentId ? 'Paid' : 'COD - Collect on Delivery',
-        
       };
 
-      // Create order for this seller
+      // Create order
       const order = await tx.order.create({
         data: {
           userId: checkout.userId,
-          sellerId: sellerId,
+          sellerId,
           paymentId: paymentId || null,
-          paymentStatus: paymentId
-            ? PaymentStatus.COMPLETED
-            : PaymentStatus.CASH,
+          paymentStatus: paymentId ? PaymentStatus.COMPLETED : PaymentStatus.CASH,
           invoice: buyerInvoice,
           sellerInvoice: sellerInvoice,
           totalAmount: sellerTotal,
@@ -379,7 +281,7 @@ const markCheckoutPaid = async (
         },
       });
 
-      // Update invoices with order ID
+      // Update order invoices with order ID
       await tx.order.update({
         where: { id: order.id },
         data: {
@@ -388,50 +290,27 @@ const markCheckoutPaid = async (
         },
       });
 
-      // Create order items in bulk
-      await tx.orderItem.createMany({
-        data: orderItems.map(item => ({
-          orderId: order.id,
-          productId: item.productId,
-          quantity: item.quantity,
-          price: item.price,
-        })),
-      });
+      // Create order items
+      await tx.orderItem.createMany({ data: orderItems.map(item => ({ ...item, orderId: order.id })) });
 
-      // Update product stock and total sold for all items
-      for (const item of orderItems) {
-        await tx.product.update({
+      // Update stock
+      await Promise.all(orderItems.map(item => 
+        tx.product.update({
           where: { id: item.productId },
-          data: {
-            totalSold: { increment: item.quantity },
-            stock: { decrement: item.quantity },
-          },
-        });
-      }
+          data: { stock: { decrement: item.quantity }, totalSold: { increment: item.quantity } },
+        })
+      ));
 
       createdOrders.push(order);
     }
 
-    // Delete the checkout
-    await tx.checkoutItem.deleteMany({
-      where: { checkoutId: checkoutId },
-    });
-    await tx.checkout.delete({
-      where: { id: checkoutId },
-    });
+    // Delete checkout and its items
+    await tx.checkoutItem.deleteMany({ where: { checkoutId } });
+    await tx.checkout.delete({ where: { id: checkoutId } });
 
-    // Clear cart items that were paid for
-    const cartItems = await prisma.cart.findUnique({
-      where: { userId },
-      include: { items: true },
-    });
-
-    await tx.cartItem.deleteMany({
-      where: {
-        cartId: cartItems?.id,
-        productId: { in: checkout.items.map(item => item.productId) },
-      },
-    });
+    // Clear cart items that were purchased
+    const productIdsPaid = checkout.items.map(item => item.productId);
+    await tx.cartItem.deleteMany({ where: { cart: { userId }, productId: { in: productIdsPaid } } });
 
     return { 
       success: true, 
@@ -442,6 +321,7 @@ const markCheckoutPaid = async (
     };
   });
 };
+
 
 // Update checkout with shipping selections
 const updateCheckoutWithShipping = async (

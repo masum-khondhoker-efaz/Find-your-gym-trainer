@@ -8,71 +8,69 @@ import prisma from '../../utils/prisma';
 import { verifyToken } from '../../utils/verifyToken';
 import { UserRoleEnum, UserStatus } from '@prisma/client';
 
-const loginUserFromDB = async (payload: { email: string; password: string }) => {
-  // 1. Try to find a user directly
-  let user = await prisma.user.findUnique({
-    where: { email: payload.email },
-  });
- 
- if(!user){
-  throw new AppError(httpStatus.NOT_FOUND, 'User not found');
- }
- if(user.isDeleted){
-  throw new AppError(httpStatus.NOT_FOUND, 'User not found');
- }
- 
+const loginUserFromDB = async (payload: {
+  email: string;
+  password: string;
+}) => {
+  const { email, password } = payload;
 
-  // 3. Validate password for normal users
+  // 1️⃣ Find user with minimal required fields
+  const user = await prisma.user.findUnique({
+    where: { email },
+    include: {
+      trainers: true, // preload trainer relation if exists
+    },
+  });
+
+  // Generic error to avoid user enumeration attack
+  if (!user || user.isDeleted) {
+    throw new AppError(httpStatus.UNAUTHORIZED, 'Invalid email or password');
+  }
+
   if (!user.password) {
     throw new AppError(httpStatus.BAD_REQUEST, 'Password is not set');
   }
 
-  const validPassword = await bcrypt.compare(payload.password, user.password);
-  if (!validPassword) {
-    throw new AppError(httpStatus.BAD_REQUEST, 'Password incorrect');
+  // 2️⃣ Validate password
+  const isPasswordValid = await bcrypt.compare(password, user.password);
+  if (!isPasswordValid) {
+    throw new AppError(httpStatus.UNAUTHORIZED, 'Invalid email or password');
   }
 
- 
-
-  // 5. Account status checks
-  if (user.status === UserStatus.PENDING || user.isVerified === false) {
-    throw new AppError(httpStatus.BAD_REQUEST, 'Please verify your email before logging in');
+  // 3️⃣ Account status checks
+  if (!user.isVerified || user.status === UserStatus.PENDING) {
+    throw new AppError(
+      httpStatus.BAD_REQUEST,
+      'Please verify your email before logging in',
+    );
   }
+
   if (user.status === UserStatus.BLOCKED) {
-    throw new AppError(httpStatus.FORBIDDEN, 'Your account is blocked. Please contact support.');
+    throw new AppError(
+      httpStatus.FORBIDDEN,
+      'Your account is blocked. Please contact support.',
+    );
   }
-  if(user.role === UserRoleEnum.TRAINER){
-    const trainerProfile = await prisma.user.findUnique({
-      where: { id: user.id,
-        isProfileComplete: true
-       },
-       include: {
-        trainers: true,
-       },
-    });
-    if(!trainerProfile || !trainerProfile.trainers){
+
+  // 4️⃣ Trainer validation
+  if (user.role === UserRoleEnum.TRAINER) {
+    if (!user.isProfileComplete || !user.trainers) {
       throw new AppError(
         httpStatus.FORBIDDEN,
-        'Trainer profile not found. Please complete your profile to proceed.',
-      );
-    } 
-    if (!trainerProfile) {
-      throw new AppError(
-        httpStatus.FORBIDDEN,
-        'Please wait while your trainer profile is being reviewed.',
+        'Trainer profile incomplete. Please complete your profile.',
       );
     }
   }
 
-  // 6. Mark user as logged in
-  if (user.isLoggedIn === false) {
+  // 5️⃣ Mark user as logged in (only if needed)
+  if (!user.isLoggedIn) {
     await prisma.user.update({
       where: { id: user.id },
       data: { isLoggedIn: true },
     });
   }
 
-  // 7. Issue tokens
+  // 6️⃣ Generate tokens
   const accessToken = await generateToken(
     { id: user.id, email: user.email, role: user.role, purpose: 'access' },
     config.jwt.access_secret as Secret,
@@ -97,46 +95,58 @@ const loginUserFromDB = async (payload: { email: string; password: string }) => 
 };
 
 
+
 const refreshTokenFromDB = async (refreshedToken: string) => {
   if (!refreshedToken) {
-    throw new AppError(httpStatus.UNAUTHORIZED, 'Refresh token is required');
+    throw new AppError(httpStatus.UNAUTHORIZED, 'Unauthorized');
   }
 
-  const decoded = await verifyToken(
-    refreshedToken,
-    config.jwt.refresh_secret as Secret,
-  );
-  if (!decoded) {
-    throw new AppError(httpStatus.UNAUTHORIZED, 'Invalid refresh token');
+  let decoded: any;
+
+  try {
+    decoded = await verifyToken(
+      refreshedToken,
+      config.jwt.refresh_secret as Secret,
+    );
+  } catch (error) {
+    throw new AppError(httpStatus.UNAUTHORIZED, 'Unauthorized');
   }
 
-  const userData = await prisma.user.findUnique({
+  // Validate token purpose
+  if (decoded.purpose && decoded.purpose !== 'refresh') {
+    throw new AppError(httpStatus.UNAUTHORIZED, 'Unauthorized');
+  }
+
+  const user = await prisma.user.findFirst({
     where: {
-      id: (decoded as any).id,
+      id: decoded.id,
       status: UserStatus.ACTIVE,
+      isDeleted: false,
     },
   });
 
-  if (!userData) {
-    throw new AppError(httpStatus.NOT_FOUND, 'User not found');
+  if (!user) {
+    throw new AppError(httpStatus.UNAUTHORIZED, 'Unauthorized');
   }
 
+  // Generate new tokens (rotation)
   const newAccessToken = await generateToken(
     {
-      id: userData.id,
-      email: userData.email,
-      role: userData.role,
+      id: user.id,
+      email: user.email,
+      role: user.role,
       purpose: 'access',
     },
     config.jwt.access_secret as Secret,
     config.jwt.access_expires_in as string,
   );
 
-  const newRefreshToken = await refreshToken(
+  const newRefreshToken = await generateToken(
     {
-      id: userData.id,
-      email: userData.email,
-      role: userData.role,
+      id: user.id,
+      email: user.email,
+      role: user.role,
+      purpose: 'refresh',
     },
     config.jwt.refresh_secret as Secret,
     config.jwt.refresh_expires_in as string,
@@ -147,6 +157,7 @@ const refreshTokenFromDB = async (refreshedToken: string) => {
     refreshToken: newRefreshToken,
   };
 };
+
 
 const logoutUserFromDB = async (userId: string) => {
   await prisma.user.update({

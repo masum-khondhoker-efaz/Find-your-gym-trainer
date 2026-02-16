@@ -3,13 +3,27 @@ import { UserRoleEnum, UserStatus } from '@prisma/client';
 import AppError from '../../errors/AppError';
 import httpStatus from 'http-status';
 
-const createSpecialtiesIntoDb = async (userId: string, data: any) => {
-  const { specialtyName, ...restData } = data;
+type CreateSpecialtyPayload = {
+  specialtyName: string;
+};
 
-  // Check if specialty already exists
+const createSpecialtiesIntoDb = async (
+  userId: string,
+  payload: CreateSpecialtyPayload,
+) => {
+  const specialtyName = payload.specialtyName.trim();
+
+  if (!specialtyName) {
+    throw new AppError(httpStatus.BAD_REQUEST, 'Specialty name is required');
+  }
+
+  // Case-insensitive check
   const existingSpecialty = await prisma.specialties.findFirst({
     where: {
-      specialtyName,
+      specialtyName: {
+        equals: specialtyName,
+        mode: 'insensitive',
+      },
     },
   });
 
@@ -17,16 +31,35 @@ const createSpecialtiesIntoDb = async (userId: string, data: any) => {
     return existingSpecialty;
   }
 
-  const newSpecialty = await prisma.specialties.create({
-    data: {
-      specialtyName,
-      ...restData,
-      userId,
-    },
-  });
+  try {
+    const newSpecialty = await prisma.specialties.create({
+      data: {
+        specialtyName,
+        userId,
+      },
+    });
 
-  return newSpecialty;
+    return newSpecialty;
+  } catch (error) {
+    // Handles race condition if two requests hit at same time
+    const fallback = await prisma.specialties.findFirst({
+      where: {
+        specialtyName: {
+          equals: specialtyName,
+          mode: 'insensitive',
+        },
+      },
+    });
+
+    if (fallback) return fallback;
+
+    throw new AppError(
+      httpStatus.INTERNAL_SERVER_ERROR,
+      'Failed to create specialty',
+    );
+  }
 };
+
 
 
 const getSpecialtiesListFromDb = async () => {
@@ -52,36 +85,64 @@ const getSpecialtiesByIdFromDb = async (
   return result;
 };
 
+type UpdateSpecialtyPayload = {
+  specialtyName?: string;
+};
+
 const updateSpecialtiesIntoDb = async (
   userId: string,
   specialtiesId: string,
-  data: any,
+  payload: UpdateSpecialtyPayload,
 ) => {
-
-  // Check if specialties exists
-  const existingSpecialty = await prisma.specialties.findUnique({
+  // 1️⃣ Check ownership + existence
+  const existingSpecialty = await prisma.specialties.findFirst({
     where: {
       id: specialtiesId,
+      userId, // enforce ownership
     },
   });
 
   if (!existingSpecialty) {
-    throw new AppError(httpStatus.NOT_FOUND, 'specialties not found');
+    throw new AppError(httpStatus.NOT_FOUND, 'Specialty not found');
   }
 
-  const result = await prisma.specialties.update({
-    where: {
-      id: specialtiesId,
-      // userId: userId,
-    },
-    data: {
-      ...data,
-    },
-  });
-  if (!result) {
-    throw new AppError(httpStatus.BAD_REQUEST, 'specialtiesId, not updated');
+  const updateData: UpdateSpecialtyPayload = {};
+
+  // 2️⃣ Handle specialtyName update safely
+  if (payload.specialtyName) {
+    const trimmedName = payload.specialtyName.trim();
+
+    // Check duplicate (case-insensitive)
+    const duplicate = await prisma.specialties.findFirst({
+      where: {
+        specialtyName: {
+          equals: trimmedName,
+          mode: 'insensitive',
+        },
+        NOT: {
+          id: specialtiesId,
+        },
+      },
+    });
+
+    if (duplicate) {
+      throw new AppError(
+        httpStatus.BAD_REQUEST,
+        'Specialty name already exists',
+      );
+    }
+
+    updateData.specialtyName = trimmedName;
   }
-  return result;
+
+
+  // 3️⃣ Perform update
+  const updatedSpecialty = await prisma.specialties.update({
+    where: { id: specialtiesId },
+    data: updateData,
+  });
+
+  return updatedSpecialty;
 };
 
 const deleteSpecialtiesItemFromDb = async (

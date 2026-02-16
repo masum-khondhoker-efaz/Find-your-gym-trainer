@@ -1,37 +1,58 @@
-import { Reply } from './../../../../node_modules/.prisma/client/index.d';
 import prisma from '../../utils/prisma';
-import { SupportStatus, UserRoleEnum, UserStatus } from '@prisma/client';
+import { MessageType, SupportStatus } from '@prisma/client';
 import AppError from '../../errors/AppError';
 import httpStatus from 'http-status';
 import emailSender from '../../utils/emailSender';
 import { calculatePagination, formatPaginationResponse, getPaginationQuery } from '../../utils/pagination';
-import { buildFilterQuery, buildSearchQuery, combineQueries } from '../../utils/searchFilter';
+
 import { ISearchAndFilterOptions } from '../../interface/pagination.type';
 
-const createSupportIntoDb = async (userId: string, data: any) => {
-  
-  //find the user details  
+type CreateSupportPayload = {
+  type: MessageType;
+  message: string;
+};
+
+const createSupportIntoDb = async (
+  userId: string,
+  payload: CreateSupportPayload,
+) => {
+  // 1️⃣ Validate user exists
   const user = await prisma.user.findUnique({
-    where: {
-      id: userId,
+    where: { id: userId },
+    select: {
+      fullName: true,
+      email: true,
+      phoneNumber: true,
+      isDeleted: true,
     },
   });
 
-  const result = await prisma.support.create({
+  if (!user || user.isDeleted) {
+    throw new AppError(httpStatus.NOT_FOUND, 'User not found');
+  }
+
+  // 2️⃣ Prepare user display data safely
+  const userName =
+    user.fullName ||
+    user.email?.split('@')[0] ||
+    null;
+
+  // 3️⃣ Create support ticket
+  const support = await prisma.support.create({
     data: {
-      ...data,
-      userName: user?.fullName || user?.email?.split('@')[0] || null,
-      userEmail: user?.email || null,
-      userPhone: user?.phoneNumber || null,
-      userId: userId,
+      message: payload.message.trim(),
+      userName,
+      userEmail: user.email,
+      userPhone: user.phoneNumber ?? null,
+      userId,
+      type: payload.type,
       status: SupportStatus.OPEN,
     },
   });
-  if (!result) {
-    throw new AppError(httpStatus.BAD_REQUEST, 'support not created');
-  }
-  return result;
+
+  return support;
 };
+
 
 const getSupportListFromDb = async (userId: string, options: ISearchAndFilterOptions) => {
   const { page, limit, skip, sortBy, sortOrder } = calculatePagination(options);

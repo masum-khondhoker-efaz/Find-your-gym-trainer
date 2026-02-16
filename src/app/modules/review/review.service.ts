@@ -16,86 +16,70 @@ import {
 } from '../../utils/searchFilter';
 
 const createReviewIntoDb = async (userId: string, data: any) => {
+  const { productId, rating, comment } = data;
 
-  // check the existing product
-  const findProduct = await prisma.product.findUnique({
-    where: {
-      id: data.productId,
-      isVisible: true,
-    },
+  // 1️⃣ Check if product exists and is visible
+  const product = await prisma.product.findUnique({
+    where: { id: productId, isActive: true },
   });
-  if (!findProduct) {
+  if (!product) {
     throw new AppError(httpStatus.NOT_FOUND, 'Product not found');
   }
 
-  const findExistingReview = await prisma.review.findFirst({
-    where: {
-      userId: userId,
-      productId: data.productId,
-    },
+  // 2️⃣ Check if user already reviewed this product
+  const existingReview = await prisma.review.findFirst({
+    where: { userId, productId },
   });
-  if (findExistingReview) {
+  if (existingReview) {
     throw new AppError(
       httpStatus.CONFLICT,
-      'You have already reviewed this course',
+      'You have already reviewed this product',
     );
   }
 
-  // Check if user has completed the course
-  const checkForOrder = await prisma.orderItem.findFirst({
+  // 3️⃣ Verify user purchased the product
+  const purchasedOrder = await prisma.orderItem.findFirst({
     where: {
-      productId: data.productId,
+      productId,
       order: {
-        userId: userId,
+        userId,
         status: OrderStatus.DELIVERED,
       },
     },
   });
-
-  if (!checkForOrder) {
-    throw new AppError(httpStatus.FORBIDDEN, 'You can only review products you have purchased');
+  if (!purchasedOrder) {
+    throw new AppError(
+      httpStatus.FORBIDDEN,
+      'You can only review products you have purchased',
+    );
   }
 
-  // Create review
-  const result = await prisma.review.create({
-    data: {
-      userId: userId,
-      productId: data.productId,
-      rating: data.rating,
-      comment: data.comment,
-    },
+  // 4️⃣ Create review
+  const review = await prisma.review.create({
+    data: { userId, productId, rating, comment },
   });
-  if (!result) {
+  if (!review) {
     throw new AppError(httpStatus.BAD_REQUEST, 'Review not created');
   }
 
-  // Update course's average rating and total ratings
-  const courseReviews = await prisma.review.findMany({
-    where: {
-      productId: data.productId,
-    },
-    select: {
-      rating: true,
-    },
+  // 5️⃣ Update product's average rating and total ratings
+  const { _avg, _count } = await prisma.review.aggregate({
+    where: { productId },
+    _avg: { rating: true },
+    _count: { rating: true },
   });
-
-  const totalRatings = courseReviews.length;
-  const averageRating =
-    courseReviews.reduce((sum, review) => sum + review.rating, 0) /
-    totalRatings;
 
   await prisma.product.update({
-    where: {
-      id: data.productId,
-    },
+    where: { id: productId },
     data: {
-      avgRating: parseFloat(averageRating.toFixed(2)),
-      totalRating: totalRatings,
+      avgRating: parseFloat((_avg?.rating ?? 0).toFixed(2)),
+      totalRating: _count.rating,
     },
   });
 
-  return result;
+  return review;
 };
+
 
 const getReviewListForACourseFromDb = async (
   productId: string,
@@ -211,7 +195,7 @@ const getMyReviewsForSellerFromDb = async (
 
   // Product-level filters (productName or productId)
   const productFilter: any = {
-    isVisible: true,
+    isActive: true,
     sellerId: sellerId,
     ...(options.productId && { id: options.productId }),
     ...(options.productName && {

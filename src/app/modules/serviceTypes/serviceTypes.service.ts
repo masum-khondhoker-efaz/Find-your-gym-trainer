@@ -4,30 +4,65 @@ import AppError from '../../errors/AppError';
 import httpStatus from 'http-status';
 
 
-const createServiceTypesIntoDb = async (userId: string, data: any) => {
+type CreateServiceTypePayload = {
+  serviceName: string;
+};
 
-  // Check if serviceTypes with the same name already exists
+const createServiceTypesIntoDb = async (
+  userId: string,
+  payload: CreateServiceTypePayload,
+) => {
+  const serviceName = payload.serviceName.trim();
+
+  if (!serviceName) {
+    throw new AppError(httpStatus.BAD_REQUEST, 'Service name is required');
+  }
+
+  // 1️⃣ Case-insensitive duplicate check
   const existingServiceType = await prisma.serviceTypes.findFirst({
     where: {
-      serviceName: data.serviceName,
+      serviceName: {
+        equals: serviceName,
+        mode: 'insensitive',
+      },
     },
   });
 
   if (existingServiceType) {
     return existingServiceType;
   }
-  
-    const result = await prisma.serviceTypes.create({ 
-    data: {
-      ...data,
-      userId: userId,
-    },
-  });
-  if (!result) {
-    throw new AppError(httpStatus.BAD_REQUEST, 'serviceTypes not created');
+
+  try {
+    const newServiceType = await prisma.serviceTypes.create({
+      data: {
+        serviceName,
+        userId,
+      },
+    });
+
+    return newServiceType;
+  } catch (error: any) {
+    // 2️⃣ Handle race condition (if unique index exists)
+    if (error.code === 'P2002') {
+      const fallback = await prisma.serviceTypes.findFirst({
+        where: {
+          serviceName: {
+            equals: serviceName,
+            mode: 'insensitive',
+          },
+        },
+      });
+
+      if (fallback) return fallback;
+    }
+
+    throw new AppError(
+      httpStatus.INTERNAL_SERVER_ERROR,
+      'Failed to create service type',
+    );
   }
-    return result;
 };
+
 
 const getServiceTypesListFromDb = async () => {
   
