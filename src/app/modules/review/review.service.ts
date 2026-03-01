@@ -67,6 +67,7 @@ const createReviewIntoDb = async (userId: string, data: any) => {
     where: { productId },
     _avg: { rating: true },
     _count: { rating: true },
+    
   });
 
   await prisma.product.update({
