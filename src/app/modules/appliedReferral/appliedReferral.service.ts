@@ -5,17 +5,53 @@ import httpStatus from 'http-status';
 
 
 const createAppliedReferralIntoDb = async (userId: string, data: any) => {
-  
-    const result = await prisma.appliedReferral.create({ 
-    data: {
-      ...data,
-      userId: userId,
+  const { referralCode } = data;
+
+  // Check if referral code exists in the database
+  const referral = await prisma.referral.findFirst({
+    where: {
+      referralCode: referralCode,
+    },
+    include: {
+      user: true,
     },
   });
-  if (!result) {
-    throw new AppError(httpStatus.BAD_REQUEST, 'appliedReferral not created');
+
+  if (!referral) {
+    throw new AppError(httpStatus.NOT_FOUND, 'Referral code does not exist');
   }
-    return result;
+
+  // Check if user is trying to apply their own referral code
+  if (referral.userId === userId) {
+    throw new AppError(httpStatus.BAD_REQUEST, 'You cannot apply your own referral code');
+  }
+
+  // Check if user has already applied this referral code
+  const existingAppliedReferral = await prisma.appliedReferral.findFirst({
+    where: {
+      userId: userId,
+      referralId: referral.id,
+    },
+  });
+
+  if (existingAppliedReferral) {
+    throw new AppError(httpStatus.BAD_REQUEST, 'You have already applied this referral code');
+  }
+
+  // Create the applied referral
+  const result = await prisma.appliedReferral.create({ 
+    data: {
+      userId: userId,
+      referralId: referral.id,
+      referralCode: referralCode,
+    },
+  });
+
+  if (!result) {
+    throw new AppError(httpStatus.BAD_REQUEST, 'Applied referral not created');
+  }
+
+  return result;
 };
 
 const getAppliedReferralListFromDb = async (userId: string) => {

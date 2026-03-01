@@ -308,6 +308,103 @@ const deleteOrdersItemFromDb = async (userId: string, orderId: string, role?: st
   return deletedItem;
 };
 
+const getOrdersListFromDbb = async (userId: string, role?: string) => {
+  // Check if admin
+  const isAdmin = role === 'ADMIN' || role === 'SUPER_ADMIN';
+
+  const result = await prisma.order.findMany({
+    where: isAdmin ? {} : { userId },
+    include: {
+      product: {
+        select: {
+          id: true,
+          productName: true,
+          productImage: true,
+          price: true,
+          discount: true,
+        },
+      },
+      user: {
+        select: {
+          id: true,
+          fullName: true,
+          email: true,
+        },
+      },
+      trainer: {
+        select: {
+          userId: true,
+          user: {
+            select: {
+              fullName: true,
+              email: true,
+            },
+          },
+        },
+      },
+    },
+    orderBy: {
+      createdAt: 'desc',
+    },
+  });
+
+  if (result.length === 0) {
+    return { message: 'No orders found' };
+  }
+
+  return result;
+};
+
+const getOrdersByIdFromDba = async (userId: string, orderId: string, role?: string) => {
+  const isAdmin = role === 'ADMIN' || role === 'SUPER_ADMIN';
+
+  const result = await prisma.order.findFirst({
+    where: {
+      id: orderId,
+      ...(isAdmin ? {} : { userId }),
+    },
+    include: {
+      product: {
+        select: {
+          id: true,
+          productName: true,
+          productImage: true,
+          productVideo: true,
+          price: true,
+          discount: true,
+          description: true,
+        },
+      },
+      user: {
+        select: {
+          id: true,
+          fullName: true,
+          email: true,
+          phoneNumber: true,
+        },
+      },
+      trainer: {
+        select: {
+          userId: true,
+          user: {
+            select: {
+              fullName: true,
+              email: true,
+              phoneNumber: true,
+            },
+          },
+        },
+      },
+    },
+  });
+
+  if (!result) {
+    throw new AppError(httpStatus.NOT_FOUND, 'Order not found');
+  }
+
+  return result;
+};
+
 export const ordersService = {
   createOrdersIntoDb,
   getOrdersListFromDb,

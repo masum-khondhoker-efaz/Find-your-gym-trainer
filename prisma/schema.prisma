@@ -225,6 +225,7 @@ model AppliedReferral {
   userId       String   @db.ObjectId
   referralId   String   @db.ObjectId
   referralCode String?
+  status       AppliedReferralStatus @default(PENDING)
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
@@ -863,6 +864,13 @@ enum OrderStatus {
   COMPLETED
   CANCELLED
   RETURNED
+}
+
+enum AppliedReferralStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  EXPIRED
 }
 
 enum MessageType {
