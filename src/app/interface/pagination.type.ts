@@ -1,7 +1,7 @@
 import { TrainerSpecialty } from './../../../node_modules/.prisma/client/index.d';
 export interface IPaginationOptions {
-  page?: number;
-  limit?: number;
+  page?: number | string;
+  limit?: number | string;
   sortBy?: string;
   sortOrder?: 'asc' | 'desc';
 }
@@ -30,17 +30,18 @@ export interface ISearchAndFilterOptions extends IPaginationOptions {
   searchTerm?: string;
   searchFields?: string[];
   filters?: Record<string, any>;
-  offset?: number;
+  postType?: 'all_trainers' | 'my_favorite_trainers';
+  offset?: number | string;
 
   categoryName?: string;
-  latitude?: number;
-  longitude?: number;
-  distanceInKm?: number;
-  priceMin?: number;
-  priceMax?: number;
-  discountPriceMin?: number;
-  discountPriceMax?: number;
-  rating?: number;
+  latitude?: number | string;
+  longitude?: number | string;
+  distanceInKm?: number | string;
+  priceMin?: number | string;
+  priceMax?: number | string;
+  discountPriceMin?: number | string;
+  discountPriceMax?: number | string;
+  rating?: number | string;
   isActive?: boolean | string;
   startDate?: string;
   endDate?: string;
@@ -53,7 +54,7 @@ export interface ISearchAndFilterOptions extends IPaginationOptions {
   email?: string;
   phoneNumber?: string;
   address?: string;
-  week?: number;
+  week?: number | string;
   trainerName?: string;
   isProfileComplete?: boolean | string;
 

@@ -49,10 +49,10 @@ const getProductListFromDb = async (
   // userId: string,
   options?: ISearchAndFilterOptions,
 ) => {
-  const limit = options?.limit || 10;
+  const limit = Number(options?.limit || 10);
   const offset = options?.page
-    ? (options.page - 1) * limit
-    : options?.offset || 0;
+    ? (Number(options.page) - 1) * limit
+    : Number(options?.offset || 0);
 
   const whereClause: any = {
     isActive: true,
@@ -178,7 +178,7 @@ const getProductListFromDb = async (
   ]);
 
   const totalPages = Math.ceil(total / limit);
-  const page = options?.page || Math.floor(offset / limit) + 1;
+  const page = Number(options?.page || Math.floor(offset / limit) + 1);
 
   // Flatten the response data
   const flattenedResult = result.map(product => {
@@ -290,10 +290,10 @@ const getMyProductsFromDb = async (
   userId: string,
   options?: ISearchAndFilterOptions,
 ) => {
-  const limit = options?.limit || 10;
+  const limit = Number(options?.limit || 10);
   const offset = options?.page
-    ? (options.page - 1) * limit
-    : options?.offset || 0;
+    ? (Number(options.page) - 1) * limit
+    : Number(options?.offset || 0);
 
   const whereClause: any = {
     userId: userId,
@@ -367,7 +367,7 @@ const getMyProductsFromDb = async (
   ]);
 
   const totalPages = Math.ceil(total / limit);
-  const page = options?.page || Math.floor(offset / limit) + 1;
+  const page = Number(options?.page || Math.floor(offset / limit) + 1);
 
   return {
     data: result,

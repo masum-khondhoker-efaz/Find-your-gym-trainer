@@ -4,6 +4,7 @@ import AppError from '../../errors/AppError';
 import httpStatus from 'http-status';
 import { page } from 'pdfkit';
 import { deleteFileFromSpace } from '../../utils/deleteImage';
+import { ISearchAndFilterOptions } from '../../interface/pagination.type';
 
 const createPostIntoDb = async (userId: string, data: any) => {
   const result = await prisma.post.create({
@@ -19,14 +20,80 @@ const createPostIntoDb = async (userId: string, data: any) => {
 };
 
 const getPostListFromDb = async (
-  // userId: string,
-  limit: number = 10,
-  offset: number = 0,
+  userId: string,
+  options: ISearchAndFilterOptions,
 ) => {
+  const {
+    limit: rawLimit = 10,
+    offset: rawOffset = 0,
+    searchTerm,
+    sortBy = 'createdAt',
+    sortOrder = 'desc',
+    startDate,
+    endDate,
+  } = options;
+
+  const limit = Number(rawLimit);
+  const offset = Number(rawOffset);
+
+  // Handle favorite trainers filter
+  const favoriteTrainerIds: string[] = [];
+  if (options.postType === 'my_favorite_trainers') {
+    const favoriteTrainers = await prisma.favoriteTrainer.findMany({
+      where: { userId },
+      select: { trainerId: true },
+    });
+    favoriteTrainerIds.push(...favoriteTrainers.map(ft => ft.trainerId));
+  }
+
+  // Build where clause
+  const whereClause: any = {
+    isPublished: true,
+    AND: [
+      // Post type filter
+      ...(options.postType === 'all_trainers'
+        ? [{ user: { role: UserRoleEnum.TRAINER } }]
+        : options.postType === 'my_favorite_trainers'
+          ? [
+              {
+                userId: { in: favoriteTrainerIds },
+                user: { role: UserRoleEnum.TRAINER },
+              },
+            ]
+          : []),
+
+      // Search term filter
+      ...(searchTerm
+        ? [
+            {
+              OR: [
+                { content: { contains: searchTerm, mode: 'insensitive' } },
+                {
+                  user: {
+                    fullName: { contains: searchTerm, mode: 'insensitive' },
+                  },
+                },
+              ],
+            },
+          ]
+        : []),
+
+      // Date range filter
+      ...(startDate || endDate
+        ? [
+            {
+              createdAt: {
+                ...(startDate && { gte: new Date(startDate) }),
+                ...(endDate && { lte: new Date(endDate) }),
+              },
+            },
+          ]
+        : []),
+    ],
+  };
+
   const result = await prisma.post.findMany({
-    where: {
-      isPublished: true,
-    },
+    where: whereClause,
     include: {
       user: {
         select: {
@@ -34,7 +101,6 @@ const getPostListFromDb = async (
           fullName: true,
           email: true,
           image: true,
-          // bio: true,
         },
       },
       shares: {
@@ -59,7 +125,7 @@ const getPostListFromDb = async (
       },
     },
     orderBy: {
-      createdAt: 'desc', // Newest posts first
+      [sortBy]: sortOrder,
     },
     take: limit,
     skip: offset,
@@ -70,16 +136,11 @@ const getPostListFromDb = async (
   }
 
   // Get total count for pagination
-  const total = await prisma.post.count({
-    where: {
-      isPublished: true,
-    },
-  });
+  const total = await prisma.post.count({ where: whereClause });
 
   return {
     data: result.map(post => {
       const { shares, ...postWithoutShares } = post;
-
       const isShared = shares.length > 0;
 
       return {
@@ -97,7 +158,6 @@ const getPostListFromDb = async (
     }),
     pagination: {
       limit,
-      offset,
       page: Math.floor(offset / limit) + 1,
       total,
       totalPages: Math.ceil(total / limit),
@@ -109,9 +169,20 @@ const getPostListFromDb = async (
 
 const getMyPostsFromDb = async (
   userId: string,
-  limit: number = 10,
-  offset: number = 0,
+  options: ISearchAndFilterOptions,
 ) => {
+  const {
+    limit: rawLimit = 10,
+    offset: rawOffset = 0,
+    sortBy = 'createdAt',
+    sortOrder = 'desc',
+    searchTerm,
+    startDate,
+    endDate,
+  } = options;
+  const limit = Number(rawLimit);
+  const offset = Number(rawOffset);
+
   // Fetch current user information
   const currentUser = await prisma.user.findUnique({
     where: { id: userId },
@@ -123,20 +194,43 @@ const getMyPostsFromDb = async (
     },
   });
 
-  const result = await prisma.post.findMany({
-    where: {
-      isPublished: true,
-      OR: [
-        { userId: userId },
-        {
-          shares: {
-            some: {
-              userId: userId,
-            },
+  const whereClause: any = {
+    isPublished: true,
+    OR: [
+      { userId: userId },
+      {
+        shares: {
+          some: {
+            userId: userId,
           },
         },
-      ],
-    },
+      },
+    ],
+    AND: [
+      ...(searchTerm
+        ? [
+            {
+              OR: [
+                { content: { contains: searchTerm, mode: 'insensitive' } },
+              ],
+            },
+          ]
+        : []),
+      ...(startDate || endDate
+        ? [
+            {
+              createdAt: {
+                ...(startDate && { gte: new Date(startDate) }),
+                ...(endDate && { lte: new Date(endDate) }),
+              },
+            },
+          ]
+        : []),
+    ],
+  };
+
+  const result = await prisma.post.findMany({
+    where: whereClause,
     include: {
       user: {
         select: {
@@ -144,7 +238,6 @@ const getMyPostsFromDb = async (
           fullName: true,
           email: true,
           image: true,
-          // bio: true,
         },
       },
       shares: {
@@ -161,7 +254,7 @@ const getMyPostsFromDb = async (
       },
     },
     orderBy: {
-      createdAt: 'desc', // Newest posts first
+      [sortBy]: sortOrder,
     },
     take: limit,
     skip: offset,
@@ -172,43 +265,56 @@ const getMyPostsFromDb = async (
   }
 
   // Get total count for pagination
-  const total = await prisma.post.count({
-    where: {
-      isPublished: true,
-      OR: [
-        { userId: userId },
-        {
-          shares: {
-            some: {
-              userId: userId,
-            },
-          },
+  const total = await prisma.post.count({ where: whereClause });
+
+  // Universal stats: Total Posts (owned only)
+  const totalPosts = await prisma.post.count({
+    where: { userId, isPublished: true },
+  });
+
+  // Universal stats: Total Engagement (likes + comments + shares across all user posts)
+  const engagementData = await prisma.post.findMany({
+    where: { userId, isPublished: true },
+    select: {
+      _count: {
+        select: {
+          likes: true,
+          comments: true,
+          shares: true,
         },
-      ],
+      },
     },
   });
 
+  const totalEngagement = engagementData.reduce(
+    (acc, post) =>
+      acc + post._count.likes + post._count.comments + post._count.shares,
+    0,
+  );
+
+  // Universal stats: Avg Reach (total impressions / total posts)
+  const totalImpressions = await prisma.postImpression.count({
+    where: { post: { userId } },
+  });
+
+  const avgReach = totalPosts > 0 ? Math.round(totalImpressions / totalPosts) : 0;
+
   return {
+    stats: {
+      totalPosts,
+      totalEngagement,
+      avgReach,
+    },
     data: result.map(post => {
       const { shares, ...postWithoutShares } = post;
       const isShared = shares.some(share => share.userId === userId);
 
       return {
         ...postWithoutShares,
-        // originalPoster: {
-        //   isOwner: post.userId === userId,
-        //   id: post.user.id,
-        //   fullName: post.user.fullName,
-        //   email: post.user.email,
-        //   image: post.user.image,
-        // },
         isShared,
-        // If shared, include the current user's info as the sharer
         ...(isShared && {
           sharedBy: {
             id: userId,
-            // You'll need to fetch current user's info
-            // or include it in the function parameter
             fullName: currentUser!.fullName,
             email: currentUser!.email,
             image: currentUser!.image,
@@ -218,7 +324,6 @@ const getMyPostsFromDb = async (
     }),
     pagination: {
       limit,
-      offset,
       page: Math.floor(offset / limit) + 1,
       total,
       totalPages: Math.ceil(total / limit),
@@ -285,7 +390,6 @@ const getTrainerPostsFromDb = async (
     data: result,
     pagination: {
       limit,
-      offset,
       page: Math.floor(offset / limit) + 1,
       total,
       totalPages: Math.ceil(total / limit),
@@ -331,6 +435,7 @@ const getPostByIdFromDb = async (userId: string, postId: string) => {
   const result = await prisma.post.findUnique({
     where: {
       id: postId,
+      isPublished: true,
     },
   });
   if (!result) {
@@ -381,9 +486,12 @@ const deletePostItemFromDb = async (userId: string, postId: string) => {
     throw new AppError(httpStatus.NOT_FOUND, 'Post not found or unauthorized');
   }
 
-  const deletedItem = await prisma.post.delete({
+  const deletedItem = await prisma.post.update({
     where: {
       id: postId,
+    },
+    data: {
+      isPublished: false,
     },
   });
 

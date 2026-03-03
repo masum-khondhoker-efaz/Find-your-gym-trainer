@@ -30,6 +30,7 @@ router.put(
 );
 
 router.get('/me', auth(), UserControllers.getMyProfile);
+
 router.get(
   '/trainer-profile',
   auth(UserRoleEnum.TRAINER),

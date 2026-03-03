@@ -9,13 +9,14 @@ const router = express.Router();
 
 router.post(
   '/',
+  auth(UserRoleEnum.TRAINER, UserRoleEnum.MEMBER),
   validateRequest(supportValidation.createSchema),
   supportController.createSupport,
 );
 
 router.get(
   '/',
-  auth(),
+  auth(UserRoleEnum.TRAINER, UserRoleEnum.MEMBER),
   supportController.getSupportList,
 );
 

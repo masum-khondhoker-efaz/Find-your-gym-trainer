@@ -33,10 +33,7 @@ import { referralRewardSettingsRoutes } from '../modules/referralRewardSettings/
 import { subscriptionPricingRuleRoutes } from '../modules/subscriptionPricingRule/subscriptionPricingRule.routes';
 import { contactUsInfoRoutes } from '../modules/contactUsInfo/contactUsInfo.routes';
 import { newsletterSubscriberRoutes } from '../modules/newsletterSubscriber/newsletterSubscriber.routes';
-// import { contactUsInfoRoutes } from '../modules/contactUsInfo/contactUsInfo.routes';
-// import { newsletterSubscriberRoutes } from '../modules/newsletterSubscriber/newsletterSubscriber.routes';
-// import { supportRoutes } from '../modules/support/support.routes';
-// import { addressRoutes } from '../modules/address/address.routes';
+import { supportRoutes } from '../modules/support/support.routes';
 // import { PaymentRoutes } from '../modules/payment/payment.routes';
 // import { orderRoutes } from '../modules/order/order.routes';
 
@@ -112,10 +109,10 @@ const moduleRoutes = [
     path: '/newsletter-subscriber',
     route: newsletterSubscriberRoutes,
   },
-  // {
-  //   path: '/support',
-  //   route: supportRoutes,
-  // },
+  {
+    path: '/support',
+    route: supportRoutes,
+  },
   // {
   //   path: '/payments',
   //   route: PaymentRoutes,

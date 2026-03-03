@@ -1,5 +1,5 @@
 import prisma from '../../utils/prisma';
-import { OrderStatus, UserRoleEnum, UserStatus } from '@prisma/client';
+import { OrderStatus, UserRoleEnum, ReviewType } from '@prisma/client';
 import AppError from '../../errors/AppError';
 import httpStatus from 'http-status';
 import { ISearchAndFilterOptions } from '../../interface/pagination.type';
@@ -15,12 +15,22 @@ import {
   buildDateRangeQuery,
 } from '../../utils/searchFilter';
 
-const createReviewIntoDb = async (userId: string, data: any) => {
+// ==================== PRODUCT REVIEWS ====================
+// Product reviews automatically review the trainer who created the product
+
+const createProductReviewIntoDb = async (userId: string, data: any) => {
   const { productId, rating, comment } = data;
 
   // 1️⃣ Check if product exists and is visible
   const product = await prisma.product.findUnique({
     where: { id: productId, isActive: true },
+    include: {
+      user: {
+        include: {
+          trainers: true,
+        },
+      },
+    },
   });
   if (!product) {
     throw new AppError(httpStatus.NOT_FOUND, 'Product not found');
@@ -28,7 +38,7 @@ const createReviewIntoDb = async (userId: string, data: any) => {
 
   // 2️⃣ Check if user already reviewed this product
   const existingReview = await prisma.review.findFirst({
-    where: { userId, productId },
+    where: { userId, productId, type: ReviewType.PRODUCT },
   });
   if (existingReview) {
     throw new AppError(
@@ -38,51 +48,79 @@ const createReviewIntoDb = async (userId: string, data: any) => {
   }
 
   // 3️⃣ Verify user purchased the product
-  const purchasedOrder = await prisma.orderItem.findFirst({
-    where: {
-      productId,
-      order: {
-        userId,
-        status: OrderStatus.DELIVERED,
-      },
-    },
-  });
-  if (!purchasedOrder) {
-    throw new AppError(
-      httpStatus.FORBIDDEN,
-      'You can only review products you have purchased',
-    );
-  }
+  // const purchasedOrder = await prisma.order.findFirst({
+  //   where: {
+  //     userId,
+  //     status: OrderStatus.COMPLETED,
+  //   },
+  // });
+  // if (!purchasedOrder) {
+  //   throw new AppError(
+  //     httpStatus.FORBIDDEN,
+  //     'You can only review products you have purchased',
+  //   );
+  // }
 
   // 4️⃣ Create review
   const review = await prisma.review.create({
-    data: { userId, productId, rating, comment },
+    data: { userId, productId, rating, comment, type: ReviewType.PRODUCT },
   });
   if (!review) {
     throw new AppError(httpStatus.BAD_REQUEST, 'Review not created');
   }
 
   // 5️⃣ Update product's average rating and total ratings
-  const { _avg, _count } = await prisma.review.aggregate({
-    where: { productId },
+  const productReviews = await prisma.review.aggregate({
+    where: { productId, type: ReviewType.PRODUCT },
     _avg: { rating: true },
     _count: { rating: true },
-    
   });
 
   await prisma.product.update({
     where: { id: productId },
     data: {
-      avgRating: parseFloat((_avg?.rating ?? 0).toFixed(2)),
-      totalRating: _count.rating,
+      avgRating: parseFloat((productReviews._avg?.rating ?? 0).toFixed(2)),
+      ratingCount: productReviews._count.rating,
     },
   });
+
+  // 6️⃣ Update trainer's average rating (since this product review is also a trainer review)
+  const trainerId = product.userId;
+  const trainer = await prisma.trainer.findUnique({
+    where: { userId: trainerId },
+  });
+
+  if (trainer) {
+    // Get all reviews for all products by this trainer
+    const trainerProducts = await prisma.product.findMany({
+      where: { userId: trainerId },
+      select: { id: true },
+    });
+
+    const trainerProductIds = trainerProducts.map(p => p.id);
+
+    const trainerReviews = await prisma.review.aggregate({
+      where: {
+        productId: { in: trainerProductIds },
+        type: ReviewType.PRODUCT,
+      },
+      _avg: { rating: true },
+      _count: { rating: true },
+    });
+
+    await prisma.trainer.update({
+      where: { userId: trainerId },
+      data: {
+        avgRating: parseFloat((trainerReviews._avg?.rating ?? 0).toFixed(2)),
+        ratingCount: trainerReviews._count.rating,
+      },
+    });
+  }
 
   return review;
 };
 
-
-const getReviewListForACourseFromDb = async (
+const getProductReviewListFromDb = async (
   productId: string,
   options: ISearchAndFilterOptions = {},
 ) => {
@@ -112,10 +150,12 @@ const getReviewListForACourseFromDb = async (
     : {};
 
   // Build filter query
-  const parsedRating = options.rating != null ? Number(options.rating) : undefined;
+  const parsedRating =
+    options.rating != null ? Number(options.rating) : undefined;
 
   const filterFields: Record<string, any> = {
     productId,
+    type: ReviewType.PRODUCT,
     ...(parsedRating !== undefined && !Number.isNaN(parsedRating)
       ? { rating: parsedRating }
       : {}),
@@ -132,11 +172,338 @@ const getReviewListForACourseFromDb = async (
   // Combine all queries
   const whereQuery = combineQueries(searchQuery, filterQuery, dateQuery);
 
+  // Fetch total count for pagination
+  const total = await prisma.review.count({ where: whereQuery });
+
   // Sorting
   const orderBy = getPaginationQuery(sortBy, sortOrder).orderBy;
 
+  // Fetch paginated reviews
+  const reviews = await prisma.review.findMany({
+    where: whereQuery,
+    skip,
+    take: limit,
+    orderBy,
+    select: {
+      id: true,
+      userId: true,
+      rating: true,
+      comment: true,
+      createdAt: true,
+      user: {
+        select: {
+          fullName: true,
+          email: true,
+          image: true,
+        },
+      },
+      product: {
+        select: {
+          id: true,
+          productName: true,
+          user: {
+            select: {
+              id: true,
+              fullName: true,
+            },
+          },
+        },
+      },
+      trainerReplies: {
+        select: {
+          id: true,
+          reply: true,
+          createdAt: true,
+          trainer: {
+            select: {
+              user: {
+                select: {
+                  id: true,
+                  fullName: true,
+                  image: true,
+                },
+              },
+            },
+          },
+        },
+      },
+    },
+  });
+
+  // Calculate stats for all reviews of this product
+  const allProductReviews = await prisma.review.findMany({
+    where: { productId: productId, type: ReviewType.PRODUCT },
+    select: { rating: true },
+  });
+
+  const totalRatings = allProductReviews.length;
+  const averageRating =
+    totalRatings > 0
+      ? allProductReviews.reduce((sum, review) => sum + review.rating, 0) /
+        totalRatings
+      : 0;
+
+  // Return paginated response with stats
+  const paginationResult = formatPaginationResponse(
+    reviews,
+    total,
+    page,
+    limit,
+  );
+
+  return {
+    ...paginationResult,
+    stats: {
+      totalRatings,
+      averageRating: parseFloat(averageRating.toFixed(2)),
+    },
+  };
+};
+
+const getTrainerReviewListFromDb = async (
+  trainerId: string,
+  options: ISearchAndFilterOptions = {},
+) => {
+  // 1️⃣ Get all products by this trainer
+  const trainerProducts = await prisma.product.findMany({
+    where: { userId: trainerId },
+    select: { id: true },
+  });
+  const trainerProductIds = trainerProducts.map(p => p.id);
+
+  // Pagination
+  const { page, limit, skip, sortBy, sortOrder } = calculatePagination(options);
+  
+  // Build search query (search in comment and user name)
+  const searchQuery = options.searchTerm
+    ? {
+        OR: [
+          {
+            comment: {
+              contains: options.searchTerm,
+              mode: 'insensitive' as const,
+            },
+          },
+          {
+            user: {
+              fullName: {
+                contains: options.searchTerm,
+                mode: 'insensitive' as const,
+              },
+            },
+          },
+        ],
+      }
+    : {};
+
+  // Build filter query
+  const parsedRating =
+    options.rating != null ? Number(options.rating) : undefined;
+    
+  const filterFields: Record<string, any> = {
+    productId: { in: trainerProductIds },
+    type: ReviewType.PRODUCT,
+    ...(parsedRating !== undefined && !Number.isNaN(parsedRating)
+      ? { rating: parsedRating }
+      : {}),
+  };
+  const filterQuery = buildFilterQuery(filterFields);
+
+  // Date range filtering
+  const dateQuery = buildDateRangeQuery({
+    startDate: options.startDate,
+    endDate: options.endDate,
+    dateField: 'createdAt',
+  });
+  
+  // Combine all queries
+  const whereQuery = combineQueries(searchQuery, filterQuery, dateQuery);
   // Fetch total count for pagination
   const total = await prisma.review.count({ where: whereQuery });
+  // Sorting
+  const orderBy = getPaginationQuery(sortBy, sortOrder).orderBy;
+  // Fetch paginated reviews
+  const reviews = await prisma.review.findMany({
+    where: whereQuery,
+    skip,
+    take: limit,
+    orderBy,
+    select: {
+      id: true,
+      userId: true,
+      rating: true,
+      comment: true,
+      createdAt: true,
+      user: {
+        select: {
+          fullName: true,
+          email: true,
+          image: true,
+        },
+      },
+      product: {
+        select: {
+          id: true,
+          productName: true,
+          user: {
+            select: {
+              id: true, 
+              fullName: true,
+            },
+          },
+        },
+      },
+      trainerReplies: {
+        select: {
+          id: true,
+          reply: true,
+          createdAt: true,
+          trainer: {
+            select: {
+              user: {
+                select: {
+                  id: true,
+                  fullName: true,
+                },
+              },
+            },
+          },
+        },
+      },
+    },
+  });
+  
+
+
+  // Calculate stats for all reviews of this trainer
+  const allTrainerReviews = await prisma.review.findMany({
+    where: { 
+      productId: { in: trainerProductIds }, 
+      type: ReviewType.PRODUCT 
+    },
+    select: { rating: true },
+  });
+
+  const totalRatings = allTrainerReviews.length;
+  const averageRating =
+    totalRatings > 0
+      ? allTrainerReviews.reduce((sum, review) => sum + review.rating, 0) /
+        totalRatings
+      : 0;
+
+  // Return paginated response with stats
+  const paginationResult = formatPaginationResponse(
+    reviews,
+    total,
+    page,
+    limit,
+  );
+
+  return {
+    ...paginationResult,
+    stats: {
+      totalRatings,
+      averageRating: parseFloat(averageRating.toFixed(2)),
+    },
+  };
+};
+
+// ==================== SYSTEM REVIEWS ====================
+
+const createSystemReviewIntoDb = async (userId: string, data: any) => {
+  const { rating, comment } = data;
+
+  // 1️⃣ Check if user already submitted a system review
+  const existingReview = await prisma.review.findFirst({
+    where: { userId, type: ReviewType.SYSTEM },
+  });
+  if (existingReview) {
+    throw new AppError(
+      httpStatus.CONFLICT,
+      'You have already reviewed the system',
+    );
+  }
+
+  // 2️⃣ Verify user has made at least one purchase
+  // const hasPurchased = await prisma.order.findFirst({
+  //   where: {
+  //     userId,
+  //     status: OrderStatus.DELIVERED,
+  //   },
+  // });
+  // if (!hasPurchased) {
+  //   throw new AppError(
+  //     httpStatus.FORBIDDEN,
+  //     'You can only review the system after making a purchase',
+  //   );
+  // }
+
+  // 3️⃣ Create review
+  const review = await prisma.review.create({
+    data: { userId, rating, comment, type: ReviewType.SYSTEM },
+  });
+  if (!review) {
+    throw new AppError(httpStatus.BAD_REQUEST, 'Review not created');
+  }
+
+  return review;
+};
+
+const getSystemReviewListFromDb = async (
+  options: ISearchAndFilterOptions = {},
+) => {
+  // Pagination
+  const { page, limit, skip, sortBy, sortOrder } = calculatePagination(options);
+
+  // Build search query
+  const searchQuery = options.searchTerm
+    ? {
+        OR: [
+          {
+            comment: {
+              contains: options.searchTerm,
+              mode: 'insensitive' as const,
+            },
+          },
+          {
+            user: {
+              fullName: {
+                contains: options.searchTerm,
+                mode: 'insensitive' as const,
+              },
+            },
+          },
+        ],
+      }
+    : {};
+
+  // Build filter query
+  const parsedRating =
+    options.rating != null ? Number(options.rating) : undefined;
+
+  const filterFields: Record<string, any> = {
+    type: ReviewType.SYSTEM,
+    ...(parsedRating !== undefined && !Number.isNaN(parsedRating)
+      ? { rating: parsedRating }
+      : {}),
+  };
+  const filterQuery = buildFilterQuery(filterFields);
+
+  // Date range filtering
+  const dateQuery = buildDateRangeQuery({
+    startDate: options.startDate,
+    endDate: options.endDate,
+    dateField: 'createdAt',
+  });
+
+  // Combine all queries
+  const whereQuery = combineQueries(searchQuery, filterQuery, dateQuery);
+
+  // Fetch total count for pagination
+  const total = await prisma.review.count({ where: whereQuery });
+
+  // Sorting
+  const orderBy = getPaginationQuery(sortBy, sortOrder).orderBy;
 
   // Fetch paginated reviews
   const reviews = await prisma.review.findMany({
@@ -160,21 +527,26 @@ const getReviewListForACourseFromDb = async (
     },
   });
 
-  // Calculate stats for all reviews of this product (not just current page)
-  const allProductReviews = await prisma.review.findMany({
-    where: { productId: productId },
+  // Calculate stats for all system reviews
+  const allSystemReviews = await prisma.review.findMany({
+    where: { type: ReviewType.SYSTEM },
     select: { rating: true },
   });
 
-  const totalRatings = allProductReviews.length;
+  const totalRatings = allSystemReviews.length;
   const averageRating =
     totalRatings > 0
-      ? allProductReviews.reduce((sum, review) => sum + review.rating, 0) /
+      ? allSystemReviews.reduce((sum, review) => sum + review.rating, 0) /
         totalRatings
       : 0;
 
   // Return paginated response with stats
-  const paginationResult = formatPaginationResponse(reviews, total, page, limit);
+  const paginationResult = formatPaginationResponse(
+    reviews,
+    total,
+    page,
+    limit,
+  );
 
   return {
     ...paginationResult,
@@ -185,140 +557,88 @@ const getReviewListForACourseFromDb = async (
   };
 };
 
+// ==================== TRAINER REPLIES ====================
 
-
-const getMyReviewsForSellerFromDb = async (
-  sellerId: string,
-  options: ISearchAndFilterOptions = {},
+const createTrainerReplyIntoDb = async (
+  trainerId: string,
+  reviewId: string,
+  data: any,
 ) => {
-  // Pagination
-  const { page, limit, skip, sortBy, sortOrder } = calculatePagination(options);
+  const { reply } = data;
 
-  // Product-level filters (productName or productId)
-  const productFilter: any = {
-    isActive: true,
-    sellerId: sellerId,
-    ...(options.productId && { id: options.productId }),
-    ...(options.productName && {
-      productName: {
-        contains: options.productName,
-        mode: 'insensitive' as const,
+  // 1️⃣ Check if review exists
+  const review = await prisma.review.findUnique({
+    where: { id: reviewId },
+    include: {
+      product: {
+        select: {
+          userId: true,
+        },
       },
-    }),
-  };
-
-  // Review-level filters
-  const reviewWhere: any = {
-    ...(options.rating && { rating: options.rating }),
-    ...(options.searchTerm && {
-      OR: [
-        {
-          comment: {
-            contains: options.searchTerm,
-            mode: 'insensitive' as const,
-          },
+      trainer: {
+        select: {
+          userId: true,
         },
-        {
-          user: {
-            fullName: {
-              contains: options.searchTerm,
-              mode: 'insensitive' as const,
-            },
-          },
-        },
-      ],
-    }),
-  };
-
-  // Date filter applied to reviews
-  if (options.startDate || options.endDate) {
-    reviewWhere.createdAt = {};
-    if (options.startDate)
-      reviewWhere.createdAt.gte = new Date(options.startDate);
-    if (options.endDate) reviewWhere.createdAt.lte = new Date(options.endDate);
+      },
+    },
+  });
+  if (!review) {
+    throw new AppError(httpStatus.NOT_FOUND, 'Review not found');
   }
 
-  // Fetch products with nested reviews matching reviewWhere
-  const productsWithReviews = await prisma.product.findMany({
-    where: productFilter,
-    select: {
-      id: true,
-      productName: true,
-      price: true,
-      discount: true,
-      productImages: true,
-      review: {
-        where: reviewWhere,
-        include: {
+  // 2️⃣ Verify trainer can reply to this review (only product reviews)
+  if (review.type !== ReviewType.PRODUCT) {
+    throw new AppError(
+      httpStatus.FORBIDDEN,
+      'You can only reply to product reviews',
+    );
+  }
+
+  if (review.product?.userId !== trainerId) {
+    throw new AppError(
+      httpStatus.FORBIDDEN,
+      'You can only reply to reviews for your products',
+    );
+  }
+
+  // 3️⃣ Check if trainer already replied
+  const existingReply = await prisma.trainerReply.findFirst({
+    where: { reviewId, trainerId },
+  });
+  if (existingReply) {
+    throw new AppError(
+      httpStatus.CONFLICT,
+      'You have already replied to this review',
+    );
+  }
+
+  // 4️⃣ Create reply
+  const trainerReply = await prisma.trainerReply.create({
+    data: { reviewId, trainerId, reply },
+    include: {
+      trainer: {
+        select: {
           user: {
             select: {
-              id: true,
               fullName: true,
-              email: true,
               image: true,
             },
           },
         },
-        orderBy: { createdAt: 'desc' },
       },
     },
   });
 
-  // Flatten reviews across products
-  const allReviews = productsWithReviews.flatMap(prod =>
-    (prod.review || []).map(r => ({
-      id: r.id,
-      rating: r.rating,
-      comment: r.comment,
-      createdAt: r.createdAt,
-      customerName: r.user?.fullName,
-      customerEmail: r.user?.email,
-      customerImage: r.user?.image,
-      productId: prod.id,
-      productName: prod.productName,
-      price: prod.price,
-      discount: prod.discount,
-      productImages: prod.productImages,
-    })),
-  );
-
-  // Sort globally based on sortBy (default createdAt desc)
-  const sorted = allReviews.sort((a: any, b: any) => {
-    const field = sortBy || 'createdAt';
-    const dir = (sortOrder || 'desc') === 'asc' ? 1 : -1;
-    const av = a[field];
-    const bv = b[field];
-    if (!av && !bv) return 0;
-    if (!av) return 1 * dir;
-    if (!bv) return -1 * dir;
-    return av > bv ? 1 * dir : av < bv ? -1 * dir : 0;
-  });
-
-  const total = sorted.length;
-
-  // Paginate in-memory
-  const paged = sorted.slice(skip, skip + limit);
-
-  return formatPaginationResponse(paged, total, page, limit);
+  return trainerReply;
 };
 
-const getReviewByIdFromDb = async (userId: string, reviewId: string) => {
-  const result = await prisma.review.findUnique({
-    where: {
-      id: reviewId,
-    },
-  });
-  if (!result) {
-    throw new AppError(httpStatus.NOT_FOUND, 'review not found');
-  }
-  return result;
-};
+// ==================== COMMON REVIEW OPERATIONS ====================
 
 const updateReviewIntoDb = async (
   userId: string,
   reviewId: string,
   data: {
-    rating: number;
+    rating?: number;
     comment?: string;
   },
 ) => {
@@ -345,9 +665,50 @@ const updateReviewIntoDb = async (
       ...data,
     },
   });
-  if (!result) {
-    throw new AppError(httpStatus.BAD_REQUEST, 'Review not updated');
+
+  // Update aggregated ratings based on review type
+  if (result.productId && result.type === ReviewType.PRODUCT) {
+    // Update product rating
+    const productReviews = await prisma.review.aggregate({
+      where: { productId: result.productId, type: ReviewType.PRODUCT },
+      _avg: { rating: true },
+      _count: { rating: true },
+    });
+
+    const product = await prisma.product.update({
+      where: { id: result.productId },
+      data: {
+        avgRating: parseFloat((productReviews._avg?.rating ?? 0).toFixed(2)),
+        ratingCount: productReviews._count.rating,
+      },
+    });
+
+    // Update trainer rating (since product review is also trainer review)
+    const trainerProducts = await prisma.product.findMany({
+      where: { userId: product.userId },
+      select: { id: true },
+    });
+
+    const trainerProductIds = trainerProducts.map(p => p.id);
+
+    const trainerReviews = await prisma.review.aggregate({
+      where: {
+        productId: { in: trainerProductIds },
+        type: ReviewType.PRODUCT,
+      },
+      _avg: { rating: true },
+      _count: { rating: true },
+    });
+
+    await prisma.trainer.update({
+      where: { userId: product.userId },
+      data: {
+        avgRating: parseFloat((trainerReviews._avg?.rating ?? 0).toFixed(2)),
+        ratingCount: trainerReviews._count.rating,
+      },
+    });
   }
+
   return result;
 };
 
@@ -355,7 +716,6 @@ const deleteReviewItemFromDb = async (userId: string, reviewId: string) => {
   const existingReview = await prisma.review.findUnique({
     where: {
       id: reviewId,
-      userId: userId,
     },
   });
   if (!existingReview) {
@@ -371,20 +731,75 @@ const deleteReviewItemFromDb = async (userId: string, reviewId: string) => {
   const deletedItem = await prisma.review.delete({
     where: {
       id: reviewId,
-      userId: userId,
     },
   });
-  if (!deletedItem) {
-    throw new AppError(httpStatus.BAD_REQUEST, 'Review not deleted');
+
+  // Update aggregated ratings based on review type
+  if (deletedItem.productId && deletedItem.type === ReviewType.PRODUCT) {
+    // Update product rating
+    const productReviews = await prisma.review.aggregate({
+      where: { productId: deletedItem.productId, type: ReviewType.PRODUCT },
+      _avg: { rating: true },
+      _count: { rating: true },
+    });
+
+    const product = await prisma.product.findUnique({
+      where: { id: deletedItem.productId },
+    });
+
+    if (product) {
+      await prisma.product.update({
+        where: { id: deletedItem.productId },
+        data: {
+          avgRating: parseFloat((productReviews._avg?.rating ?? 0).toFixed(2)),
+          ratingCount: productReviews._count.rating,
+        },
+      });
+
+      // Update trainer rating (since product review is also trainer review)
+      const trainerProducts = await prisma.product.findMany({
+        where: { userId: product.userId },
+        select: { id: true },
+      });
+
+      const trainerProductIds = trainerProducts.map(p => p.id);
+
+      const trainerReviews = await prisma.review.aggregate({
+        where: {
+          productId: { in: trainerProductIds },
+          type: ReviewType.PRODUCT,
+        },
+        _avg: { rating: true },
+        _count: { rating: true },
+      });
+
+      await prisma.trainer.update({
+        where: { userId: product.userId },
+        data: {
+          avgRating: parseFloat((trainerReviews._avg?.rating ?? 0).toFixed(2)),
+          ratingCount: trainerReviews._count.rating,
+        },
+      });
+    }
   }
+
   return deletedItem;
 };
 
 export const reviewService = {
-  createReviewIntoDb,
-  getReviewListForACourseFromDb,
-  getMyReviewsForSellerFromDb,
-  getReviewByIdFromDb,
+  // Product Reviews (also reviews the trainer who created the product)
+  createProductReviewIntoDb,
+  getProductReviewListFromDb,
+  getTrainerReviewListFromDb,
+
+  // System Reviews
+  createSystemReviewIntoDb,
+  getSystemReviewListFromDb,
+
+  // Trainer Replies
+  createTrainerReplyIntoDb,
+
+  // Common
   updateReviewIntoDb,
   deleteReviewItemFromDb,
 };

@@ -4,54 +4,103 @@ import catchAsync from '../../utils/catchAsync';
 import { reviewService } from './review.service';
 import { ISearchAndFilterOptions } from '../../interface/pagination.type';
 
-const createReview = catchAsync(async (req, res) => {
+// ==================== PRODUCT REVIEWS ====================
+// Note: Product reviews automatically review the trainer who created the product
+
+const createProductReview = catchAsync(async (req, res) => {
   const user = req.user as any;
-  const result = await reviewService.createReviewIntoDb(user.id, req.body);
+  const result = await reviewService.createProductReviewIntoDb(user.id, req.body);
   sendResponse(res, {
     statusCode: httpStatus.CREATED,
     success: true,
-    message: 'Review created successfully',
+    message: 'Product review created successfully',
     data: result,
   });
 });
 
-const getReviewListForACourse = catchAsync(async (req, res) => {
-  // const user = req.user as any;
-  const result = await reviewService.getReviewListForACourseFromDb( req.params.id, req.query as ISearchAndFilterOptions);
+const getProductReviewList = catchAsync(async (req, res) => {
+  const result = await reviewService.getProductReviewListFromDb(
+    req.params.productId,
+    req.query as ISearchAndFilterOptions,
+  );
   sendResponse(res, {
     statusCode: httpStatus.OK,
     success: true,
-    message: 'Review list retrieved successfully',
+    message: 'Product reviews retrieved successfully',
+    stats: result.stats,
     data: result.data,
     meta: result.meta,
   });
 });
 
-const getMyReviewsForSeller = catchAsync(async (req, res) => {
-  const user = req.user as any;
-  const result = await reviewService.getMyReviewsForSellerFromDb(user.id );
+const getTrainerReviewList = catchAsync(async (req, res) => {
+  const result = await reviewService.getTrainerReviewListFromDb(
+    req.params.trainerId,
+    req.query as ISearchAndFilterOptions,
+  );
   sendResponse(res, {
     statusCode: httpStatus.OK,
     success: true,
-    message: 'My reviews for seller retrieved successfully',
+    message: 'Trainer reviews retrieved successfully',
+    stats: result.stats,
+    data: result.data,
+    meta: result.meta,
+  });
+});
+
+// ==================== SYSTEM REVIEWS ====================
+
+const createSystemReview = catchAsync(async (req, res) => {
+  const user = req.user as any;
+  const result = await reviewService.createSystemReviewIntoDb(user.id, req.body);
+  sendResponse(res, {
+    statusCode: httpStatus.CREATED,
+    success: true,
+    message: 'System review created successfully',
     data: result,
   });
 });
 
-const getReviewById = catchAsync(async (req, res) => {
-  const user = req.user as any;
-  const result = await reviewService.getReviewByIdFromDb(user.id, req.params.id);
+const getSystemReviewList = catchAsync(async (req, res) => {
+  const result = await reviewService.getSystemReviewListFromDb(
+    req.query as ISearchAndFilterOptions,
+  );
   sendResponse(res, {
     statusCode: httpStatus.OK,
     success: true,
-    message: 'Review details retrieved successfully',
+    message: 'System reviews retrieved successfully',
+    stats: result.stats,
+    data: result.data,
+    meta: result.meta,
+  });
+});
+
+// ==================== TRAINER REPLIES ====================
+
+const createTrainerReply = catchAsync(async (req, res) => {
+  const user = req.user as any;
+  const result = await reviewService.createTrainerReplyIntoDb(
+    user.id,
+    req.params.reviewId,
+    req.body,
+  );
+  sendResponse(res, {
+    statusCode: httpStatus.CREATED,
+    success: true,
+    message: 'Reply created successfully',
     data: result,
   });
 });
+
+// ==================== COMMON OPERATIONS ====================
 
 const updateReview = catchAsync(async (req, res) => {
   const user = req.user as any;
-  const result = await reviewService.updateReviewIntoDb(user.id,req.params.id, req.body);
+  const result = await reviewService.updateReviewIntoDb(
+    user.id,
+    req.params.id,
+    req.body,
+  );
   sendResponse(res, {
     statusCode: httpStatus.OK,
     success: true,
@@ -72,10 +121,19 @@ const deleteReview = catchAsync(async (req, res) => {
 });
 
 export const reviewController = {
-  createReview,
-  getReviewListForACourse,
-  getMyReviewsForSeller,
-  getReviewById,
+  // Product Reviews
+  createProductReview,
+  getProductReviewList,
+  getTrainerReviewList,
+
+  // System Reviews
+  createSystemReview,
+  getSystemReviewList,
+
+  // Trainer Replies
+  createTrainerReply,
+
+  // Common
   updateReview,
   deleteReview,
 };

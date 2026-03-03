@@ -17,7 +17,7 @@ router.post(
   postController.createPost,
 );
 
-router.get('/', postController.getPostList);
+router.get('/', auth(), postController.getPostList);
 
 router.get('/my-posts', auth(), postController.getMyPosts);
 

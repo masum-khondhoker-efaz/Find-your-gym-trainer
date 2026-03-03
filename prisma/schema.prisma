@@ -128,6 +128,7 @@ model Trainer {
   trainerSpecialties              TrainerSpecialty[]
   subscriptionPricingRuleTrainers SubscriptionPricingRuleTrainer[]
   orders                          Order[]
+  trainerReplies                  TrainerReply[]
 
   @@map("trainers")
 }
@@ -221,13 +222,13 @@ model Referral {
 }
 
 model AppliedReferral {
-  id           String   @id @default(auto()) @map("_id") @db.ObjectId
-  userId       String   @db.ObjectId
-  referralId   String   @db.ObjectId
+  id           String                @id @default(auto()) @map("_id") @db.ObjectId
+  userId       String                @db.ObjectId
+  referralId   String                @db.ObjectId
   referralCode String?
   status       AppliedReferralStatus @default(PENDING)
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
+  createdAt    DateTime              @default(now())
+  updatedAt    DateTime              @updatedAt
 
   // Relationships
   referral Referral @relation(fields: [referralId], references: [id])
@@ -624,23 +625,34 @@ model Payment {
 }
 
 model Review {
-  id             String   @id @default(auto()) @map("_id") @db.ObjectId
-  userId         String   @db.ObjectId
-  productId      String   @db.ObjectId
-  parentReviewId String?  @db.ObjectId
-  rating         Int?
-  comment        String
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
+  id        String     @id @default(auto()) @map("_id") @db.ObjectId
+  userId    String     @db.ObjectId
+  productId String?    @db.ObjectId
+  rating    Int
+  comment   String
+  type      ReviewType @default(PRODUCT)
+  createdAt DateTime   @default(now())
+  updatedAt DateTime   @updatedAt
 
-  user    User    @relation(fields: [userId], references: [id])
-  product Product @relation(fields: [productId], references: [id])
-
-  parent Review? @relation("ReviewToReplies", fields: [parentReviewId], references: [id], onDelete: NoAction, onUpdate: NoAction)
-
-  replies Review[] @relation("ReviewToReplies")
+  user           User           @relation(fields: [userId], references: [id])
+  product        Product?       @relation(fields: [productId], references: [id])
+  trainerReplies TrainerReply[]
 
   @@map("reviews")
+}
+
+model TrainerReply {
+  id        String   @id @default(auto()) @map("_id") @db.ObjectId
+  reviewId  String   @db.ObjectId
+  trainerId String   @db.ObjectId
+  reply     String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  review  Review  @relation(fields: [reviewId], references: [id], onDelete: Cascade)
+  trainer Trainer @relation(fields: [trainerId], references: [userId])
+
+  @@map("trainer_replies")
 }
 
 model Room {
@@ -864,6 +876,11 @@ enum OrderStatus {
   COMPLETED
   CANCELLED
   RETURNED
+}
+
+enum ReviewType {
+  PRODUCT
+  SYSTEM
 }
 
 enum AppliedReferralStatus {

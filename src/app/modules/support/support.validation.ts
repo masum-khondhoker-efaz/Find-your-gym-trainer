@@ -25,20 +25,20 @@ const createSchema = z.object({
 
 const updateSchema = z.object({
   body: z.object({
-    type: z.enum(
-      [
-        'GENERAL_INQUIRY',
-        'TECHNICAL_SUPPORT',
-        'PARTNERSHIP',
-        'FEEDBACK',
-        'OTHER',
-      ],
-      {
-        errorMap: () => ({
-          message: 'Type is required and must be one of the specified values',
-        }),
-      },
-    ),
+    // type: z.enum(
+    //   [
+    //     'GENERAL_INQUIRY',
+    //     'TECHNICAL_SUPPORT',
+    //     'PARTNERSHIP',
+    //     'FEEDBACK',
+    //     'OTHER',
+    //   ],
+    //   {
+    //     errorMap: () => ({
+    //       message: 'Type is required and must be one of the specified values',
+    //     }),
+    //   },
+    // ),
     message: z.string().min(1, 'Message is required'),
   }),
 });

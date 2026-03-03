@@ -50,7 +50,14 @@ const createSupportIntoDb = async (
     },
   });
 
-  return support;
+  return {
+    id: support.id,
+    type: support.type,
+    message: support.message,
+    status: support.status,
+    createdAt: support.createdAt,
+    updatedAt: support.updatedAt,
+  };
 };
 
 
@@ -71,24 +78,24 @@ const getSupportListFromDb = async (userId: string, options: ISearchAndFilterOpt
           mode: 'insensitive' as const,
         },
       },
-      {
-        userName: {
-          contains: options.searchTerm,
-          mode: 'insensitive' as const,
-        },
-      },
-      {
-        userEmail: {
-          contains: options.searchTerm,
-          mode: 'insensitive' as const,
-        },
-      },
-      {
-        userPhone: {
-          contains: options.searchTerm,
-          mode: 'insensitive' as const,
-        },
-      },
+      // {
+      //   userName: {
+      //     contains: options.searchTerm,
+      //     mode: 'insensitive' as const,
+      //   },
+      // },
+      // {
+      //   userEmail: {
+      //     contains: options.searchTerm,
+      //     mode: 'insensitive' as const,
+      //   },
+      // },
+      // {
+      //   userPhone: {
+      //     contains: options.searchTerm,
+      //     mode: 'insensitive' as const,
+      //   },
+      // },
     ];
   }
 
@@ -150,26 +157,26 @@ if (total === 0) {
   const transformedSupports = supports.map(support => ({
     id: support.id,
     message: support.message,
-    userName: support.userName,
-    userEmail: support.userEmail,
-    userPhone: support.userPhone,
+    // userName: support.userName,
+    // userEmail: support.userEmail,
+    // userPhone: support.userPhone,
     status: support.status,
     type: support.type,
     createdAt: support.createdAt,
     updatedAt: support.updatedAt,
     
     // Reply statistics
-    totalReplies: support._count.reply,
-    hasReplies: support._count.reply > 0,
-    latestReply: support.reply.length > 0 ? support.reply[0] : null,
+    // totalReplies: support._count.reply,
+    // hasReplies: support._count.reply > 0,
+    reply: support.reply.length > 0 ? support.reply[0] : null,
     
     // Status indicators
-    isOpen: support.status === SupportStatus.OPEN,
-    isInProgress: support.status === SupportStatus.IN_PROGRESS,
-    isClosed: support.status === SupportStatus.CLOSED,
+    // isOpen: support.status === SupportStatus.OPEN,
+    // isInProgress: support.status === SupportStatus.IN_PROGRESS,
+    // isClosed: support.status === SupportStatus.CLOSED,
     
     // All replies
-    replies: support.reply,
+    // replies: support.reply,
   }));
 
   return formatPaginationResponse(transformedSupports, total, page, limit);
@@ -276,17 +283,17 @@ if (total === 0) {
     updatedAt: support.updatedAt,
     
     // Reply statistics
-    totalReplies: support._count.reply,
-    hasReplies: support._count.reply > 0,
-    latestReply: support.reply.length > 0 ? support.reply[0] : null,
+    // totalReplies: support._count.reply,
+    // hasReplies: support._count.reply > 0,
+    reply: support.reply.length > 0 ? support.reply[0] : null,
     
     // Status indicators
-    isOpen: support.status === SupportStatus.OPEN,
-    isInProgress: support.status === SupportStatus.IN_PROGRESS,
-    isClosed: support.status === SupportStatus.CLOSED,
+    // isOpen: support.status === SupportStatus.OPEN,
+    // isInProgress: support.status === SupportStatus.IN_PROGRESS,
+    // isClosed: support.status === SupportStatus.CLOSED,
     
     // All replies
-    replies: support.reply,
+    // replies: support.reply,
   }));
 
   return formatPaginationResponse(transformedSupports, total, page, limit);
@@ -351,40 +358,40 @@ const updateSupportIntoDb = async (
     }
 
     //extract username from email
-    const username = findExisting.userName || findExisting.userEmail?.split('@')[0];
+    // const username = findExisting.userName || findExisting.userEmail?.split('@')[0];
 
-    await emailSender(
-      'SpareDoc - Support',
-      findExisting.userEmail!,
-      `<div style="font-family: Arial, sans-serif; color: #333; line-height: 1.6; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #e0e0e0; border-radius: 10px;">
-        <table width="100%" style="border-collapse: collapse;">
-        <tr>
-          <td style="background-color: #F56100; padding: 20px; text-align: center; color: #000000; border-radius: 10px 10px 0 0;">
-            <h2 style="margin: 0; font-size: 24px;">Support from SpareDoc</h2>
-          </td>
-        </tr>
-        <tr>
-          <td style="padding: 20px;">
-            <p style="font-size: 16px; margin: 0;">Hello <strong>${
-              username
-            }</strong>,</p>
-            <p style="font-size: 16px;">Your message: ${findExisting.message}</p>
-            <div style="text-align: center; margin: 20px 0;">
-              <p style="font-size: 18px;" >${data.message}</p>
-            </div>
-            <p style="font-size: 14px; color: #555;">If you did not request this support, please ignore this email. No further action is needed.</p>
-            <p style="font-size: 16px; margin-top: 20px;">Thank you,<br>SpareDoc Team</p>
-          </td>
-        </tr>
-        <tr>
-          <td style="background-color: #f5f5f5; padding: 15px; text-align: center; font-size: 12px; color: #888; border-radius: 0 0 10px 10px;">
-            <p style="margin: 0;">&copy; ${new Date().getFullYear()} SpareDoc Team. All rights reserved.</p>
-          </td>
-        </tr>
-        </table>
-      </div>
-        `,
-    );
+    // await emailSender(
+    //   'SpareDoc - Support',
+    //   findExisting.userEmail!,
+    //   `<div style="font-family: Arial, sans-serif; color: #333; line-height: 1.6; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #e0e0e0; border-radius: 10px;">
+    //     <table width="100%" style="border-collapse: collapse;">
+    //     <tr>
+    //       <td style="background-color: #F56100; padding: 20px; text-align: center; color: #000000; border-radius: 10px 10px 0 0;">
+    //         <h2 style="margin: 0; font-size: 24px;">Support from SpareDoc</h2>
+    //       </td>
+    //     </tr>
+    //     <tr>
+    //       <td style="padding: 20px;">
+    //         <p style="font-size: 16px; margin: 0;">Hello <strong>${
+    //           username
+    //         }</strong>,</p>
+    //         <p style="font-size: 16px;">Your message: ${findExisting.message}</p>
+    //         <div style="text-align: center; margin: 20px 0;">
+    //           <p style="font-size: 18px;" >${data.message}</p>
+    //         </div>
+    //         <p style="font-size: 14px; color: #555;">If you did not request this support, please ignore this email. No further action is needed.</p>
+    //         <p style="font-size: 16px; margin-top: 20px;">Thank you,<br>SpareDoc Team</p>
+    //       </td>
+    //     </tr>
+    //     <tr>
+    //       <td style="background-color: #f5f5f5; padding: 15px; text-align: center; font-size: 12px; color: #888; border-radius: 0 0 10px 10px;">
+    //         <p style="margin: 0;">&copy; ${new Date().getFullYear()} SpareDoc Team. All rights reserved.</p>
+    //       </td>
+    //     </tr>
+    //     </table>
+    //   </div>
+    //     `,
+    // );
 
     const result = await tx.support.update({
       where: {
@@ -409,7 +416,19 @@ const updateSupportIntoDb = async (
       throw new AppError(httpStatus.BAD_REQUEST, 'reply not created');
     }
 
-    return result;
+    return {
+      id: result.id,
+      type: result.type,
+      message: result.message,
+      status: result.status,
+      createdAt: result.createdAt,
+      updatedAt: result.updatedAt,
+      reply: {
+        id: updateReply.id,
+        message: updateReply.message,
+        createdAt: updateReply.createdAt,
+      },
+    };
   });
 };
 

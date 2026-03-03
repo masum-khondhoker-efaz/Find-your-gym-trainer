@@ -39,14 +39,16 @@ const getFavoriteTrainerListFromDb = async (
     sortOrder = 'desc',
   } = options;
 
-  const skip = (Number(page) - 1) * Number(limit);
+  const numPage = Number(page);
+  const numLimit = Number(limit);
+  const skip = (numPage - 1) * numLimit;
 
   const favoriteTrainers = await prisma.favoriteTrainer.findMany({
     where: {
       userId: userId,
     },
     skip,
-    take: Number(limit),
+    take: numLimit,
     orderBy: {
       [sortBy]: sortOrder,
     },
@@ -131,17 +133,17 @@ const getFavoriteTrainerListFromDb = async (
     },
   });
 
-  const totalPages = Math.ceil(total / limit);
+  const totalPages = Math.ceil(total / numLimit);
 
   return {
     data: result,
     meta: {
-      page: Number(page),
-      limit: Number(limit),
+      page: numPage,
+      limit: numLimit,
       total,
       totalPages: totalPages,
-      hasNextPage: Number(page) < totalPages,
-      hasPrevPage: Number(page) > 1,
+      hasNextPage: numPage < totalPages,
+      hasPrevPage: numPage > 1,
     },
   };
 };

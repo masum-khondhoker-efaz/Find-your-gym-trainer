@@ -5,6 +5,7 @@ import { postService } from './post.service';
 import { uploadFileToS3 } from '../../utils/multipleFile';
 import { deleteFileFromSpace } from '../../utils/deleteImage';
 import AppError from '../../errors/AppError';
+import { ISearchAndFilterOptions } from '../../interface/pagination.type';
 
 const createPost = catchAsync(async (req, res) => {
   const user = req.user as any;
@@ -29,11 +30,9 @@ const createPost = catchAsync(async (req, res) => {
 });
 
 const getPostList = catchAsync(async (req, res) => {
-  // const user = req.user as any;
-  const limit = parseInt(req.query.limit as string) || 10;
-  const offset = parseInt(req.query.offset as string) || 0;
+  const user = req.user as any;
 
-  const result = await postService.getPostListFromDb(limit, offset);
+  const result = await postService.getPostListFromDb(user.id, req.query as ISearchAndFilterOptions);
   sendResponse(res, {
     statusCode: httpStatus.OK,
     success: true,
@@ -45,14 +44,14 @@ const getPostList = catchAsync(async (req, res) => {
 
 const getMyPosts = catchAsync(async (req, res) => {
   const user = req.user as any;
-  const limit = parseInt(req.query.limit as string) || 10;
-  const offset = parseInt(req.query.offset as string) || 0;
 
-  const result = await postService.getMyPostsFromDb(user.id, limit, offset);
+
+  const result = await postService.getMyPostsFromDb(user.id, req.query as ISearchAndFilterOptions);
   sendResponse(res, {
     statusCode: httpStatus.OK,
     success: true,
     message: 'My posts retrieved successfully',
+    stats: result.stats,
     data: result.data,
     meta: result.pagination,
   });

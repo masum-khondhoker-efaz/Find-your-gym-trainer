@@ -92,10 +92,10 @@ const createSubscriptionOfferIntoDb = async (userId: string, data: any) => {
 const getSubscriptionOfferListFromDb = async (
   options: ISearchAndFilterOptions,
 ) => {
-  const limit = options?.limit || 10;
+  const limit = Number(options?.limit || 10);
   const offset = options?.page
-    ? (options.page - 1) * limit
-    : options?.offset || 0;
+    ? (Number(options.page) - 1) * limit
+    : Number(options?.offset || 0);
 
   const whereClause: any = {};
 
@@ -176,7 +176,7 @@ const getSubscriptionOfferListFromDb = async (
   ]);
 
   const totalPages = Math.ceil(total / limit);
-  const page = options?.page || Math.floor(offset / limit) + 1;
+  const page = Number(options?.page || Math.floor(offset / limit) + 1);
 
   if (result.length === 0) {
     return {

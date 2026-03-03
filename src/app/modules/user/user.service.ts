@@ -232,6 +232,16 @@ const getMyProfileFromDB = async (id: string) => {
       phoneNumber: true,
       address: true,
       image: true,
+      bio: true,
+      fitnessGoals: true,
+      socialAccounts: {
+        select: {
+          platformType: true,
+          platformUrl: true,
+        },
+      },
+      gymName: true,
+      gymId: true,
       // isProfileComplete: true,
       createdAt: true,
       updatedAt: true,
@@ -352,6 +362,14 @@ const updateMyProfileIntoDB = async (id: string, payload: any) => {
       email: true,
       phoneNumber: true,
       address: true,
+      bio: true,
+      fitnessGoals: true,
+      socialAccounts: {
+        select: {
+          platformType: true,
+          platformUrl: true,
+        },
+      },
     },
   });
   if (!updatedUser) {

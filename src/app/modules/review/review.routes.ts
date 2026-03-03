@@ -7,23 +7,54 @@ import { UserRoleEnum } from '@prisma/client';
 
 const router = express.Router();
 
-router.post(
-  '/',
-  auth(UserRoleEnum.MEMBER),
-  validateRequest(reviewValidation.createReviewSchema),
-  reviewController.createReview,
-);
+// ==================== PRODUCT REVIEWS ====================
+// Note: Product reviews automatically review the trainer who created the product
 
-router.get('/products/:id', reviewController.getReviewListForACourse);
+router.post(
+  '/products',
+  auth(UserRoleEnum.MEMBER),
+  validateRequest(reviewValidation.createProductReviewSchema),
+  reviewController.createProductReview,
+);
 
 router.get(
-  '/my-product-reviews',
-  auth(UserRoleEnum.MEMBER, UserRoleEnum.SUPER_ADMIN, UserRoleEnum.ADMIN),
-  reviewController.getMyReviewsForSeller,
+  '/products/:productId',
+  reviewController.getProductReviewList,
 );
 
+router.get(
+  '/trainer/:trainerId',
+  reviewController.getTrainerReviewList,
+);
+
+
+// ==================== SYSTEM REVIEWS ====================
+
+router.post(
+  '/system',
+  auth(UserRoleEnum.MEMBER),
+  validateRequest(reviewValidation.createSystemReviewSchema),
+  reviewController.createSystemReview,
+);
+
+router.get(
+  '/system',
+  reviewController.getSystemReviewList,
+);
+
+// ==================== TRAINER REPLIES ====================
+
+router.post(
+  '/:reviewId/reply',
+  auth(UserRoleEnum.TRAINER),
+  validateRequest(reviewValidation.createTrainerReplySchema),
+  reviewController.createTrainerReply,
+);
+
+// ==================== COMMON OPERATIONS ====================
+
 router.patch(
-  '/products/:id',
+  '/:id',
   auth(UserRoleEnum.MEMBER),
   validateRequest(reviewValidation.updateReviewSchema),
   reviewController.updateReview,

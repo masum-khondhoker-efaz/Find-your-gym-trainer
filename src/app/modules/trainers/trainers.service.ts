@@ -30,10 +30,10 @@ const getTrainersListFromDb = async (
   // userId: string,
   options: ISearchAndFilterOptions,
 ) => {
-  const limit = options?.limit || 10;
+  const limit = Number(options?.limit || 10);
   const offset = options?.page
-    ? (options.page - 1) * limit
-    : options?.offset || 0;
+    ? (Number(options.page) - 1) * limit
+    : Number(options?.offset || 0);
 
   const whereClause: any = {
     role: UserRoleEnum.TRAINER,
@@ -130,6 +130,12 @@ const getTrainersListFromDb = async (
           },
         },
       },
+      socialAccounts: {
+        select: {
+          platformType: true,
+          platformUrl: true,
+        },
+      },
     },
     orderBy: {
       [sortBy]: sortOrder,
@@ -138,9 +144,9 @@ const getTrainersListFromDb = async (
 
   // Filter by distance if latitude and longitude are provided
   let filteredTrainers = allTrainers;
-  const userLatitude = options?.latitude;
-  const userLongitude = options?.longitude;
-  const radiusInKm = options?.distanceInKm || 50; // Default 50km
+  const userLatitude = Number(options?.latitude);
+  const userLongitude = Number(options?.longitude);
+  const radiusInKm = Number(options?.distanceInKm || 50); // Default 50km
 
   if (userLatitude !== undefined && userLongitude !== undefined) {
     filteredTrainers = allTrainers
@@ -167,7 +173,7 @@ const getTrainersListFromDb = async (
   const result = filteredTrainers.slice(offset, offset + limit);
 
   const totalPages = Math.ceil(total / limit);
-  const page = options?.page || Math.floor(offset / limit) + 1;
+  const page = Number(options?.page || Math.floor(offset / limit) + 1);
 
   // Format the response
   const formattedResult = result.map(user => {
@@ -201,6 +207,7 @@ const getTrainersListFromDb = async (
       serviceTypes: serviceTypes || [],
       portfolio: trainer?.portfolio || [],
       certifications: trainer?.certifications || [],
+      socialAccounts: user.socialAccounts || [],
     };
   });
 
@@ -236,6 +243,12 @@ const getTrainersByIdFromDb = async (
           address: true,
           latitude: true,
           longitude: true,
+          socialAccounts: {
+            select: {
+              platformType: true,
+              platformUrl: true,
+            },
+          }
         },
       },
       trainerSpecialties: {
@@ -293,6 +306,7 @@ const getTrainersByIdFromDb = async (
     })),
     portfolio: result.portfolio,
     certifications: result.certifications,
+    socialAccounts: result.user.socialAccounts || [],
   };
 };
 
