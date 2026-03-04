@@ -116,6 +116,166 @@ const getPostListFromDb = async (
           },
         },
       },
+      likes: {
+        where: { userId },
+        select: { userId: true },
+      },
+      comments: {
+        where: { userId },
+        orderBy: { createdAt: 'desc' },
+        take: 1,
+        select: {
+          id: true,
+          text: true,
+          createdAt: true,
+          user: {
+            select: {
+              id: true,
+              fullName: true,
+              email: true,
+              image: true,
+            },
+          },
+        },
+      },
+      _count: {
+        select: {
+          likes: true,
+          comments: true,
+          shares: true,
+        },
+      },
+    },
+    orderBy: {
+      [sortBy]: sortOrder,
+    },
+    take: limit,
+    skip: offset,
+  });
+
+  if (result.length === 0) {
+    return { message: 'No posts found', data: [] };
+  }
+
+  // Get total count for pagination
+  const total = await prisma.post.count({ where: whereClause });
+
+  return {
+    data: result.map(post => {
+      const { shares, likes, comments, ...postWithoutShares } = post;
+      const isShared = shares.some(share => share.userId === userId);
+      const isLikedByMe = likes.length > 0;
+      const myLatestComment = comments.length > 0 ? comments[0] : null;
+
+      return {
+        ...postWithoutShares,
+        isShared,
+        isLikedByMe,
+        myLatestComment,
+        ...(isShared && {
+          sharedBy: shares.map(share => ({
+            id: share.userId,
+            fullName: share.user.fullName,
+            email: share.user.email,
+            image: share.user.image,
+          })),
+        }),
+      };
+    }),
+    pagination: {
+      limit,
+      page: Math.floor(offset / limit) + 1,
+      total,
+      totalPages: Math.ceil(total / limit),
+      hasNextPage: offset + limit < total,
+      hasPrevPage: offset > 0,
+    },
+  };
+};
+
+const getAllPostListFromDb = async (options: ISearchAndFilterOptions) => {
+  const {
+    limit: rawLimit = 10,
+    offset: rawOffset = 0,
+    searchTerm,
+    sortBy = 'createdAt',
+    sortOrder = 'desc',
+    startDate,
+    endDate,
+  } = options;
+
+  const limit = Number(rawLimit);
+  const offset = Number(rawOffset);
+
+  // Build where clause
+  const whereClause: any = {
+    isPublished: true,
+    ...(options.postType === 'all_trainers' && {
+      user: { role: UserRoleEnum.TRAINER },
+    }),
+    AND: [
+      // Search term filter
+      ...(searchTerm
+        ? [
+            {
+              OR: [
+                { content: { contains: searchTerm, mode: 'insensitive' } },
+                {
+                  user: {
+                    fullName: { contains: searchTerm, mode: 'insensitive' },
+                  },
+                },
+              ],
+            },
+          ]
+        : []),
+
+      // Date range filter
+      ...(startDate || endDate
+        ? [
+            {
+              createdAt: {
+                ...(startDate && { gte: new Date(startDate) }),
+                ...(endDate && { lte: new Date(endDate) }),
+              },
+            },
+          ]
+        : []),
+    ],
+  };
+
+  // Block my_favorite_trainers filter for this function
+  if (options.postType === 'my_favorite_trainers') {
+    throw new AppError(
+      httpStatus.BAD_REQUEST,
+      'my_favorite_trainers filter is not allowed for this endpoint',
+    );
+  }
+
+  const result = await prisma.post.findMany({
+    where: whereClause,
+    include: {
+      user: {
+        select: {
+          id: true,
+          fullName: true,
+          email: true,
+          image: true,
+        },
+      },
+      shares: {
+        select: {
+          userId: true,
+          user: {
+            select: {
+              id: true,
+              fullName: true,
+              email: true,
+              image: true,
+            },
+          },
+        },
+      },
       _count: {
         select: {
           likes: true,
@@ -141,6 +301,10 @@ const getPostListFromDb = async (
   return {
     data: result.map(post => {
       const { shares, ...postWithoutShares } = post;
+      /**
+       * Indicates whether the post has been shared by any user.
+       * `true` if there is at least one share, `false` otherwise.
+       */
       const isShared = shares.length > 0;
 
       return {
@@ -210,9 +374,7 @@ const getMyPostsFromDb = async (
       ...(searchTerm
         ? [
             {
-              OR: [
-                { content: { contains: searchTerm, mode: 'insensitive' } },
-              ],
+              OR: [{ content: { contains: searchTerm, mode: 'insensitive' } }],
             },
           ]
         : []),
@@ -297,7 +459,8 @@ const getMyPostsFromDb = async (
     where: { post: { userId } },
   });
 
-  const avgReach = totalPosts > 0 ? Math.round(totalImpressions / totalPosts) : 0;
+  const avgReach =
+    totalPosts > 0 ? Math.round(totalImpressions / totalPosts) : 0;
 
   return {
     stats: {
@@ -323,6 +486,67 @@ const getMyPostsFromDb = async (
       };
     }),
     pagination: {
+      limit,
+      page: Math.floor(offset / limit) + 1,
+      total,
+      totalPages: Math.ceil(total / limit),
+      hasNextPage: offset + limit < total,
+      hasPrevPage: offset > 0,
+    },
+  };
+};
+
+const getAllCommentsByPostIdFromDb = async (
+  postId: string,
+  options: ISearchAndFilterOptions,
+) => {
+  const { limit: rawLimit = 10, offset: rawOffset = 0 } = options;
+
+  const limit = Number(rawLimit);
+  const offset = Number(rawOffset);
+
+  //check if post exists and is published
+  const post = await prisma.post.findUnique({
+    where: {
+      id: postId,
+      isPublished: true,
+    },
+  });
+  if (!post) {
+    throw new AppError(httpStatus.NOT_FOUND, 'Post not found');
+  }
+
+  const result = await prisma.comment.findMany({
+    where: {
+      postId: postId,
+    },
+    include: {
+      user: {
+        select: {
+          id: true,
+          fullName: true,
+          email: true,
+          image: true,
+        },
+      },
+    },
+    orderBy: {
+      createdAt: 'desc',
+    },
+    take: limit,
+    skip: offset,
+  });
+
+  // Get total count for pagination
+  const total = await prisma.comment.count({
+    where: {
+      postId: postId,
+    },
+  });
+
+  return {
+    data: result,
+    meta: {
       limit,
       page: Math.floor(offset / limit) + 1,
       total,
@@ -524,7 +748,9 @@ const getAllPostsImageUrlsFromDb = async () => {
 export const postService = {
   createPostIntoDb,
   getPostListFromDb,
+  getAllPostListFromDb,
   getMyPostsFromDb,
+  getAllCommentsByPostIdFromDb,
   getAMyPostByIdFromDb,
   getTrainerPostsFromDb,
   getPostByIdFromDb,

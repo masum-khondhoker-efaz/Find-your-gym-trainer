@@ -142,19 +142,21 @@ const getTrainersListFromDb = async (
     },
   });
 
-  // Filter by distance if latitude and longitude are provided
-  let filteredTrainers = allTrainers;
-  const userLatitude = Number(options?.latitude);
-  const userLongitude = Number(options?.longitude);
+  const userLatitude = options?.latitude ? Number(options.latitude) : null;
+  const userLongitude = options?.longitude ? Number(options.longitude) : null;
   const radiusInKm = Number(options?.distanceInKm || 50); // Default 50km
+  const hasLocationFilter = userLatitude !== null && userLongitude !== null && !isNaN(userLatitude) && !isNaN(userLongitude);
 
-  if (userLatitude !== undefined && userLongitude !== undefined) {
+  let filteredTrainers: any[] = allTrainers;
+
+  if (hasLocationFilter) {
     filteredTrainers = allTrainers
       .map(trainer => {
         if (trainer.latitude && trainer.longitude) {
+          console.log(trainer.fullName, trainer.latitude, trainer.longitude);
           const distance = calculateDistance(
-            userLatitude,
-            userLongitude,
+            userLatitude!,
+            userLongitude!,
             trainer.latitude,
             trainer.longitude,
           );
@@ -178,7 +180,7 @@ const getTrainersListFromDb = async (
   // Format the response
   const formattedResult = result.map(user => {
     const trainer = user.trainers[0];
-    const serviceTypes = trainer?.trainerServiceTypes?.map(tst => ({
+    const serviceTypes = trainer?.trainerServiceTypes?.map((tst: any) => ({
       id: tst.serviceType.id,
       serviceName: tst.serviceType.serviceName,
     }));
@@ -191,16 +193,13 @@ const getTrainersListFromDb = async (
       bio: user.bio,
       phoneNumber: user.phoneNumber,
       address: user.address,
-      latitude: user.latitude,
-      longitude: user.longitude,
-      distance: ((user as any).distance)?.toFixed(2) || null,
-      // trainerId: trainer?.id,
+      distance: hasLocationFilter ? ((user as any).distance)?.toFixed(2) || null : null,
       experienceYears: trainer?.experienceYears,
       avgRating: trainer?.avgRating,
       ratingCount: trainer?.ratingCount,
       totalReferrals: trainer?.totalReferrals,
       views: trainer?.views,
-      specialty: trainer?.trainerSpecialties.map(ts => ({
+      specialty: trainer?.trainerSpecialties.map((ts: any) => ({
         id: ts.specialty.id,
         specialtyName: ts.specialty.specialtyName,
       })),

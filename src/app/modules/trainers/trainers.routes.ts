@@ -13,6 +13,7 @@ router.get(
   trainersController.getTrainersList,
 );
 
+
 router.get(
   '/find-trainers/:id',
   /*auth(UserRoleEnum.MEMBER),*/ trainersController.getTrainersById,

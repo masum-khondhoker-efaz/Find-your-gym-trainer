@@ -55,12 +55,12 @@ const createSubscriptionOfferIntoDb = async (userId: string, data: any) => {
       );
     }
 
-    console.log(
-      'Success! Here is your starter subscription product id: ' + product.id,
-    );
-    console.log(
-      'Success! Here is your starter subscription price id: ' + price.id,
-    );
+    // console.log(
+    //   'Success! Here is your starter subscription product id: ' + product.id,
+    // );
+    // console.log(
+    //   'Success! Here is your starter subscription price id: ' + price.id,
+    // );
 
     const updatedResult = await tx.subscriptionOffer.update({
       where: {

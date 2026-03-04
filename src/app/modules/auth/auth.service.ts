@@ -89,6 +89,7 @@ const loginUserFromDB = async (payload: {
     email: user.email,
     role: user.role,
     image: user.image,
+    isProfileComplete: user.isProfileComplete,
     accessToken,
     refreshToken: refreshTokenValue,
   };

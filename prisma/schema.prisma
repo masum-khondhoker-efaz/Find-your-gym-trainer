@@ -491,6 +491,7 @@ model SubscriptionOffer {
   title           String
   description     String?
   price           Float
+  initialPlan     Boolean                @default(false) // Indicates if this is the default plan for new trainers
   currency        String?                @default("usd")
   duration        SubscriptionType
   planType        SubscriptionPlanStatus @default(TRAINER_PRO)

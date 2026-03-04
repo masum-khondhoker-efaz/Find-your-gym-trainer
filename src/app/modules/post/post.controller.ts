@@ -32,7 +32,10 @@ const createPost = catchAsync(async (req, res) => {
 const getPostList = catchAsync(async (req, res) => {
   const user = req.user as any;
 
-  const result = await postService.getPostListFromDb(user.id, req.query as ISearchAndFilterOptions);
+  const result = await postService.getPostListFromDb(
+    user.id,
+    req.query as ISearchAndFilterOptions,
+  );
   sendResponse(res, {
     statusCode: httpStatus.OK,
     success: true,
@@ -42,11 +45,26 @@ const getPostList = catchAsync(async (req, res) => {
   });
 });
 
+const getAllPostList = catchAsync(async (req, res) => {
+  const result = await postService.getAllPostListFromDb(
+    req.query as ISearchAndFilterOptions,
+  );
+  sendResponse(res, {
+    statusCode: httpStatus.OK,
+    success: true,
+    message: 'All posts retrieved successfully',
+    data: result.data,
+    meta: result.pagination,
+  });
+});
+
 const getMyPosts = catchAsync(async (req, res) => {
   const user = req.user as any;
 
-
-  const result = await postService.getMyPostsFromDb(user.id, req.query as ISearchAndFilterOptions);
+  const result = await postService.getMyPostsFromDb(
+    user.id,
+    req.query as ISearchAndFilterOptions,
+  );
   sendResponse(res, {
     statusCode: httpStatus.OK,
     success: true,
@@ -54,6 +72,21 @@ const getMyPosts = catchAsync(async (req, res) => {
     stats: result.stats,
     data: result.data,
     meta: result.pagination,
+  });
+});
+
+const getAllCommentsByPostId = catchAsync(async (req, res) => {
+  // const user = req.user as any;
+  const result = await postService.getAllCommentsByPostIdFromDb(
+    req.params.id,
+    req.query as ISearchAndFilterOptions,
+  );
+  sendResponse(res, {
+    statusCode: httpStatus.OK,
+    success: true,
+    message: 'Comments retrieved successfully',
+    data: result.data,
+    meta: result.meta,
   });
 });
 
@@ -156,6 +189,8 @@ const deletePost = catchAsync(async (req, res) => {
 export const postController = {
   createPost,
   getPostList,
+  getAllPostList,
+  getAllCommentsByPostId,
   getMyPosts,
   getTrainerPosts,
   getAMyPostById,

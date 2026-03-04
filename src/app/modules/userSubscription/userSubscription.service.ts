@@ -316,6 +316,7 @@ const createUserSubscriptionFromWebhook = async (
       await tx.user.update({
         where: { id: userId },
         data: {
+          isProfileComplete: true, // Assuming subscription completion means profile is complete
           isSubscribed: true,
           subscriptionEnd: endDate,
           subscriptionPlan: subscriptionOffer.planType,
@@ -826,8 +827,8 @@ const createCheckoutSessionInStripe = async (
   data: {
     subscriptionOfferId: string;
     pricingRuleId?: string; // Optional pricing rule
-    successUrl: string;
-    cancelUrl: string;
+    // successUrl: string;
+    // cancelUrl: string;
   },
 ) => {
   // Verify user exists
@@ -924,8 +925,8 @@ const createCheckoutSessionInStripe = async (
       },
     ],
     mode: 'subscription',
-    success_url: data.successUrl,
-    cancel_url: data.cancelUrl,
+   success_url: `${config.frontend_base_url}/payment-success?session_id={CHECKOUT_SESSION_ID}`,
+    cancel_url: `${config.frontend_base_url}/payment-cancel`,
     metadata: {
       userId: userId,
       subscriptionOfferId: data.subscriptionOfferId,

@@ -19,12 +19,15 @@ router.post(
 
 router.get('/', auth(), postController.getPostList);
 
+router.get('/all-posts', postController.getAllPostList);
+
 router.get('/my-posts', auth(), postController.getMyPosts);
+
+router.get('/comment/:id', postController.getAllCommentsByPostId);
 
 router.get('/my-posts/:id', auth(), postController.getAMyPostById);
 
 router.get('/trainer-posts/:trainerId', postController.getTrainerPosts);
-
 
 router.get('/:id', auth(), postController.getPostById);
 

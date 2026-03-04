@@ -665,6 +665,7 @@ const verifyOtpInDB = async (bodyData: {
       email: true,
       fullName: true,
       stripeCustomerId: true,
+      isProfileComplete: true,
       role: true,
       image: true,
     },
@@ -716,6 +717,7 @@ const verifyOtpInDB = async (bodyData: {
     email: updatedUser.email,
     image: updatedUser.image,
     role: updatedUser.role,
+    isProfileComplete: updatedUser.isProfileComplete,
     accessToken: accessToken,
     refreshToken: refreshTokenValue,
   };
