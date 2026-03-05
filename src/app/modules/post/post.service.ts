@@ -730,6 +730,180 @@ const deletePostItemFromDb = async (userId: string, postId: string) => {
   return deletedItem;
 };
 
+const getExistingPostListFromDb = async (
+  userId: string,
+  options: ISearchAndFilterOptions,
+) => {
+  const {
+    limit: rawLimit = 10,
+    offset: rawOffset = 0,
+    searchTerm,
+    sortBy = 'createdAt',
+    sortOrder = 'desc',
+    startDate,
+    endDate,
+  } = options;
+
+  const limit = Number(rawLimit);
+  const offset = Number(rawOffset);
+
+  // Handle favorite trainers filter
+  const favoriteTrainerIds: string[] = [];
+  if (options.postType === 'my_favorite_trainers') {
+    const favoriteTrainers = await prisma.favoriteTrainer.findMany({
+      where: { userId },
+      select: { trainerId: true },
+    });
+    favoriteTrainerIds.push(...favoriteTrainers.map(ft => ft.trainerId));
+  }
+
+  // Build where clause
+  const whereClause: any = {
+    isPublished: true,
+    AND: [
+      // Post type filter
+      ...(options.postType === 'all_trainers'
+        ? [{ user: { role: UserRoleEnum.TRAINER } }]
+        : options.postType === 'my_favorite_trainers'
+          ? [
+              {
+                userId: { in: favoriteTrainerIds },
+                user: { role: UserRoleEnum.TRAINER },
+              },
+            ]
+          : []),
+
+      // Search term filter
+      ...(searchTerm
+        ? [
+            {
+              OR: [
+                { content: { contains: searchTerm, mode: 'insensitive' } },
+                {
+                  user: {
+                    fullName: { contains: searchTerm, mode: 'insensitive' },
+                  },
+                },
+              ],
+            },
+          ]
+        : []),
+
+      // Date range filter
+      ...(startDate || endDate
+        ? [
+            {
+              createdAt: {
+                ...(startDate && { gte: new Date(startDate) }),
+                ...(endDate && { lte: new Date(endDate) }),
+              },
+            },
+          ]
+        : []),
+    ],
+  };
+
+  const result = await prisma.post.findMany({
+    where: whereClause,
+    include: {
+      user: {
+        select: {
+          id: true,
+          fullName: true,
+          email: true,
+          image: true,
+        },
+      },
+      shares: {
+        select: {
+          userId: true,
+          user: {
+            select: {
+              id: true,
+              fullName: true,
+              email: true,
+              image: true,
+            },
+          },
+        },
+      },
+      likes: {
+        where: { userId },
+        select: { userId: true },
+      },
+      comments: {
+        where: { userId },
+        orderBy: { createdAt: 'desc' },
+        take: 1,
+        select: {
+          id: true,
+          text: true,
+          createdAt: true,
+          user: {
+            select: {
+              id: true,
+              fullName: true,
+              email: true,
+              image: true,
+            },
+          },
+        },
+      },
+      _count: {
+        select: {
+          likes: true,
+          comments: true,
+          shares: true,
+        },
+      },
+    },
+    orderBy: {
+      [sortBy]: sortOrder,
+    },
+    take: limit,
+    skip: offset,
+  });
+
+  if (result.length === 0) {
+    return { message: 'No posts found', data: [] };
+  }
+
+  // Get total count for pagination
+  const total = await prisma.post.count({ where: whereClause });
+
+  return {
+    data: result.map(post => {
+      const { shares, likes, comments, ...postWithoutShares } = post;
+      const isShared = shares.some(share => share.userId === userId);
+      const isLikedByMe = likes.length > 0;
+      const myLatestComment = comments.length > 0 ? comments[0] : null;
+
+      return {
+        ...postWithoutShares,
+        isShared,
+        isLikedByMe,
+        myLatestComment,
+        ...(isShared && {
+          sharedBy: shares.map(share => ({
+            id: share.userId,
+            fullName: share.user.fullName,
+            email: share.user.email,
+            image: share.user.image,
+          })),
+        }),
+      };
+    }),
+    pagination: {
+      limit,
+      page: Math.floor(offset / limit) + 1,
+      total,
+      totalPages: Math.ceil(total / limit),
+      hasNextPage: offset + limit < total,
+      hasPrevPage: offset > 0,
+    },
+  };
+};
+
 const getAllPostsImageUrlsFromDb = async () => {
   const result = await prisma.post.findMany({
     where: {

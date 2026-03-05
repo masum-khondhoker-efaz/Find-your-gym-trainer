@@ -38,7 +38,7 @@ const trainerRegisterUser = catchAsync(async (req, res) => {
 
   sendResponse(res, {
     statusCode: httpStatus.CREATED,
-    message: 'OTP sent via your email successfully',
+    message: 'Trainer registered successfully',
     data: result,
   });
 });

@@ -309,6 +309,203 @@ const getTrainersByIdFromDb = async (
   };
 };
 
+const getMemberListFromDb = async (
+  // userId: string,
+  options: ISearchAndFilterOptions,
+) => {
+  const limit = Number(options?.limit || 10);
+  const offset = options?.page
+    ? (Number(options.page) - 1) * limit
+    : Number(options?.offset || 0);
+
+  const whereClause: any = {
+    role: UserRoleEnum.TRAINER,
+    status: UserStatus.ACTIVE,
+    isProfileComplete: true,
+    isVerified: true,
+    trainers: {
+      some: {},
+    },
+  };
+
+  // Search filter
+  if (options?.searchTerm) {
+    whereClause.OR = [
+      { fullName: { contains: options.searchTerm, mode: 'insensitive' } },
+      { email: { contains: options.searchTerm, mode: 'insensitive' } },
+      { bio: { contains: options.searchTerm, mode: 'insensitive' } },
+    ];
+  }
+
+  // Trainer name filter
+  if (options?.trainerName) {
+    whereClause.fullName = {
+      contains: options.trainerName,
+      mode: 'insensitive',
+    };
+  }
+
+  // Email filter
+  if (options?.email) {
+    whereClause.email = { contains: options.email, mode: 'insensitive' };
+  }
+
+  // Service type filter
+  if (options?.serviceName || options?.trainerServiceTypes) {
+    whereClause.trainers = {
+      some: {
+        trainerServiceTypes: {
+          some: {
+            serviceType: {
+              serviceName: options.serviceName || options.trainerServiceTypes,
+            },
+          },
+        },
+      },
+    };
+  }
+
+  // Specialty filter
+  if (options?.specialtyName) {
+    whereClause.trainers = {
+      some: {
+        trainerSpecialties: {
+          some: {
+            specialty: {
+              specialtyName: options.specialtyName || options.trainerSpecialties,
+            },
+          },
+        },
+      },
+    };
+  }
+
+  // Experience years filter
+  if (options?.experienceYears !== undefined) {
+    whereClause.trainers = {
+      some: {
+        ...whereClause.trainers?.some,
+        experienceYears: {
+          gte: Number(options.experienceYears),
+        },
+      },
+    };
+  }
+
+  const sortBy = options?.sortBy || 'createdAt';
+  const sortOrder = options?.sortOrder || 'desc';
+
+  // Fetch all trainers first (we'll filter by distance in memory)
+  const allTrainers = await prisma.user.findMany({
+    where: whereClause,
+    include: {
+      trainers: {
+        include: {
+          trainerSpecialties: {
+            include: {
+              specialty: true,
+            },
+          },
+          trainerServiceTypes: {
+            include: {
+              serviceType: true,
+            },
+          },
+        },
+      },
+      socialAccounts: {
+        select: {
+          platformType: true,
+          platformUrl: true,
+        },
+      },
+    },
+    orderBy: {
+      [sortBy]: sortOrder,
+    },
+  });
+
+  const userLatitude = options?.latitude ? Number(options.latitude) : null;
+  const userLongitude = options?.longitude ? Number(options.longitude) : null;
+  const radiusInKm = Number(options?.distanceInKm || 50); // Default 50km
+  const hasLocationFilter = userLatitude !== null && userLongitude !== null && !isNaN(userLatitude) && !isNaN(userLongitude);
+
+  let filteredTrainers: any[] = allTrainers;
+
+  if (hasLocationFilter) {
+    filteredTrainers = allTrainers
+      .map(trainer => {
+        if (trainer.latitude && trainer.longitude) {
+          console.log(trainer.fullName, trainer.latitude, trainer.longitude);
+          const distance = calculateDistance(
+            userLatitude!,
+            userLongitude!,
+            trainer.latitude,
+            trainer.longitude,
+          );
+          return { ...trainer, distance };
+        }
+        return null;
+      })
+      .filter(
+        (trainer): trainer is NonNullable<typeof trainer> =>
+          trainer !== null && trainer.distance <= radiusInKm,
+      )
+      .sort((a, b) => a.distance - b.distance); // Sort by nearest first
+  }
+
+  const total = filteredTrainers.length;
+  const result = filteredTrainers.slice(offset, offset + limit);
+
+  const totalPages = Math.ceil(total / limit);
+  const page = Number(options?.page || Math.floor(offset / limit) + 1);
+
+  // Format the response
+  const formattedResult = result.map(user => {
+    const trainer = user.trainers[0];
+    const serviceTypes = trainer?.trainerServiceTypes?.map((tst: any) => ({
+      id: tst.serviceType.id,
+      serviceName: tst.serviceType.serviceName,
+    }));
+
+    return {
+      id: user.id,
+      fullName: user.fullName,
+      email: user.email,
+      image: user.image,
+      bio: user.bio,
+      phoneNumber: user.phoneNumber,
+      address: user.address,
+      distance: hasLocationFilter ? ((user as any).distance)?.toFixed(2) || null : null,
+      experienceYears: trainer?.experienceYears,
+      avgRating: trainer?.avgRating,
+      ratingCount: trainer?.ratingCount,
+      totalReferrals: trainer?.totalReferrals,
+      views: trainer?.views,
+      specialty: trainer?.trainerSpecialties.map((ts: any) => ({
+        id: ts.specialty.id,
+        specialtyName: ts.specialty.specialtyName,
+      })),
+      serviceTypes: serviceTypes || [],
+      portfolio: trainer?.portfolio || [],
+      certifications: trainer?.certifications || [],
+      socialAccounts: user.socialAccounts || [],
+    };
+  });
+
+  return {
+    data: formattedResult,
+    meta: {
+      page,
+      limit,
+      total,
+      totalPages,
+      hasNextPage: page < totalPages,
+      hasPrevPage: page > 1,
+    },
+  };
+};
+
 export const trainersService = {
   getTrainersListFromDb,
   getTrainersByIdFromDb,

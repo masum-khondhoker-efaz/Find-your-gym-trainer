@@ -406,6 +406,144 @@ const deleteSubscriptionOfferItemFromDb = async (
   });
 };
 
+const getInitialSubscriptionOfferListFromDb = async (
+  options: ISearchAndFilterOptions,
+) => {
+  const limit = Number(options?.limit || 10);
+  const offset = options?.page
+    ? (Number(options.page) - 1) * limit
+    : Number(options?.offset || 0);
+
+  const whereClause: any = {};
+
+  // Search filter
+  if (options?.searchTerm) {
+    whereClause.OR = [
+      { title: { contains: options.searchTerm, mode: 'insensitive' } },
+      { description: { contains: options.searchTerm, mode: 'insensitive' } },
+    ];
+  }
+
+  // Title filter
+  if (options?.name) {
+    whereClause.title = {
+      contains: options.name,
+      mode: 'insensitive',
+    };
+  }
+
+  // Description filter
+  if (options?.description) {
+    whereClause.description = {
+      contains: options.description,
+      mode: 'insensitive',
+    };
+  }
+
+  // Price range filter
+  if (options?.priceMin !== undefined || options?.priceMax !== undefined) {
+    whereClause.price = {};
+    if (options?.priceMin !== undefined) {
+      whereClause.price.gte = Number(options.priceMin);
+    }
+    if (options?.priceMax !== undefined) {
+      whereClause.price.lte = Number(options.priceMax);
+    }
+  }
+
+  // Duration filter
+  if (options?.duration) {
+    whereClause.duration = String(options.duration);
+  }
+
+  // Subscription type filter
+  if (options?.subscriptionType) {
+    whereClause.subscriptionType = options.subscriptionType;
+  }
+
+  // Active status filter
+  if (options?.isActive !== undefined) {
+    whereClause.isActive =
+      options.isActive === true || options.isActive === 'true';
+  }
+
+  const sortBy = options?.sortBy || 'createdAt';
+  const sortOrder = options?.sortOrder || 'desc';
+
+  const [result, total] = await Promise.all([
+    prisma.subscriptionOffer.findMany({
+      where: whereClause,
+      include: {
+        creator: {
+          select: {
+            id: true,
+            fullName: true,
+            email: true,
+            image: true,
+          },
+        },
+      },
+      take: limit,
+      skip: offset,
+      orderBy: {
+        [sortBy]: sortOrder,
+      },
+    }),
+    prisma.subscriptionOffer.count({ where: whereClause }),
+  ]);
+
+  const totalPages = Math.ceil(total / limit);
+  const page = Number(options?.page || Math.floor(offset / limit) + 1);
+
+  if (result.length === 0) {
+    return {
+      data: [],
+      meta: {
+        page,
+        limit,
+        total,
+        totalPages,
+        hasNextPage: false,
+        hasPrevPage: false,
+      },
+    };
+  }
+
+  // Fetch Stripe data (optional - only if needed)
+  const stripeProductIds = await stripe.products.list({
+    limit: 100,
+  });
+  const stripePriceIds = await stripe.prices.list({
+    limit: 100,
+  });
+
+  const resultWithStripeData = result.map(offer => {
+    // const product = stripeProductIds.data.find(
+    //   prod => prod.id === offer.stripeProductId,
+    // );
+    // const price = stripePriceIds.data.find(
+    //   prc => prc.id === offer.stripePriceId,
+    // );
+    return {
+      ...offer,
+      // stripeProduct: product || null,
+      // stripePrice: price || null,
+    };
+  });
+
+  return {
+    data: resultWithStripeData,
+    meta: {
+      page,
+      limit,
+      total,
+      totalPages,
+      hasNextPage: page < totalPages,
+      hasPrevPage: page > 1,
+    },
+  };
+};
+
 export const subscriptionOfferService = {
   createSubscriptionOfferIntoDb,
   getSubscriptionOfferListFromDb,
