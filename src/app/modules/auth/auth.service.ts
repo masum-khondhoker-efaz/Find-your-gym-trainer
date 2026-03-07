@@ -83,7 +83,8 @@ const loginUserFromDB = async (payload: {
     config.jwt.refresh_expires_in as string,
   );
 
-  return {
+  // 7️⃣ Build response object
+  const response: any = {
     id: user.id,
     name: user.fullName,
     email: user.email,
@@ -93,6 +94,15 @@ const loginUserFromDB = async (payload: {
     accessToken,
     refreshToken: refreshTokenValue,
   };
+
+  // Add subscription fields for TRAINER role
+  if (user.role === UserRoleEnum.TRAINER) {
+    response.subscriptionPlan = user.subscriptionPlan;
+    response.isSubscribed = user.isSubscribed;
+    response.subscriptionEnd = user.subscriptionEnd;
+  }
+
+  return response;
 };
 
 

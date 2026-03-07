@@ -1,5 +1,5 @@
 import prisma from '../../utils/prisma';
-import { OrderStatus, UserRoleEnum, ReviewType } from '@prisma/client';
+import { OrderStatus, PaymentStatus, UserRoleEnum, ReviewType } from '@prisma/client';
 import AppError from '../../errors/AppError';
 import httpStatus from 'http-status';
 import { ISearchAndFilterOptions } from '../../interface/pagination.type';
@@ -48,18 +48,20 @@ const createProductReviewIntoDb = async (userId: string, data: any) => {
   }
 
   // 3️⃣ Verify user purchased the product
-  // const purchasedOrder = await prisma.order.findFirst({
-  //   where: {
-  //     userId,
-  //     status: OrderStatus.COMPLETED,
-  //   },
-  // });
-  // if (!purchasedOrder) {
-  //   throw new AppError(
-  //     httpStatus.FORBIDDEN,
-  //     'You can only review products you have purchased',
-  //   );
-  // }
+  const purchasedOrder = await prisma.order.findFirst({
+    where: {
+      userId,
+      productId,
+      paymentStatus: PaymentStatus.COMPLETED,
+      status: OrderStatus.COMPLETED,
+    },
+  });
+  if (!purchasedOrder) {
+    throw new AppError(
+      httpStatus.FORBIDDEN,
+      'You can only review products you have purchased',
+    );
+  }
 
   // 4️⃣ Create review
   const review = await prisma.review.create({
@@ -425,18 +427,19 @@ const createSystemReviewIntoDb = async (userId: string, data: any) => {
   }
 
   // 2️⃣ Verify user has made at least one purchase
-  // const hasPurchased = await prisma.order.findFirst({
-  //   where: {
-  //     userId,
-  //     status: OrderStatus.DELIVERED,
-  //   },
-  // });
-  // if (!hasPurchased) {
-  //   throw new AppError(
-  //     httpStatus.FORBIDDEN,
-  //     'You can only review the system after making a purchase',
-  //   );
-  // }
+  const hasPurchased = await prisma.order.findFirst({
+    where: {
+      userId,
+      paymentStatus: PaymentStatus.COMPLETED,
+      status: OrderStatus.COMPLETED,
+    },
+  });
+  if (!hasPurchased) {
+    throw new AppError(
+      httpStatus.FORBIDDEN,
+      'You can only review the system after completing a purchase',
+    );
+  }
 
   // 3️⃣ Create review
   const review = await prisma.review.create({
@@ -571,11 +574,6 @@ const createTrainerReplyIntoDb = async (
     where: { id: reviewId },
     include: {
       product: {
-        select: {
-          userId: true,
-        },
-      },
-      trainer: {
         select: {
           userId: true,
         },

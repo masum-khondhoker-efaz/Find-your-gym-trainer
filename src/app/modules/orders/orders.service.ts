@@ -1,5 +1,5 @@
 import prisma from '../../utils/prisma';
-import { OrderStatus, PaymentStatus } from '@prisma/client';
+import { OrderStatus, PaymentStatus, ProductStatus } from '@prisma/client';
 import AppError from '../../errors/AppError';
 import httpStatus from 'http-status';
 import Stripe from 'stripe';
@@ -26,11 +26,14 @@ const createOrdersIntoDb = async (
         id: true,
         productName: true,
         price: true,
-        discount: true,
         isActive: true,
+        status: true,
         capacity: true,
         totalPurchased: true,
         userId: true,
+        durationWeeks: true,
+        invoiceFrequency: true,
+        productImage: true,
       },
     });
 
@@ -38,7 +41,7 @@ const createOrdersIntoDb = async (
       throw new AppError(httpStatus.NOT_FOUND, 'Product not found');
     }
 
-    if (!product.isActive) {
+    if (!product.isActive || product.status !== ProductStatus.ACTIVE) {
       throw new AppError(httpStatus.BAD_REQUEST, 'Product is not available for purchase');
     }
 
@@ -72,11 +75,39 @@ const createOrdersIntoDb = async (
       throw new AppError(httpStatus.NOT_FOUND, 'User not found');
     }
 
-    // Calculate final price with discount
-    const originalPrice = product.price;
-    const discountPercent = product.discount || 0;
-    const discountedPrice = originalPrice - (originalPrice * discountPercent) / 100;
-    const totalPrice = discountedPrice;
+    // Check for active custom pricing
+    const now = new Date();
+    const activeCustomPricing = await tx.customPricing.findFirst({
+      where: {
+        productId: productId,
+        startDate: { lte: now },
+        endDate: { gte: now },
+      },
+      orderBy: {
+        customPrice: 'asc',
+      },
+    });
+
+    // Calculate pricing
+    let finalPrice = product.price;
+    let customPricingId = null;
+    let discountAmount = 0;
+
+    if (activeCustomPricing) {
+      // Check if custom pricing limit is reached
+      const customPricingUsageCount = await tx.order.count({
+        where: {
+          customPricingId: activeCustomPricing.id,
+          paymentStatus: { in: [PaymentStatus.COMPLETED, PaymentStatus.PENDING] },
+        },
+      });
+
+      if (customPricingUsageCount < activeCustomPricing.limit) {
+        finalPrice = activeCustomPricing.customPrice;
+        customPricingId = activeCustomPricing.id;
+        discountAmount = product.price - activeCustomPricing.customPrice;
+      }
+    }
 
     // Ensure Stripe Customer exists
     let customerId = user.stripeCustomerId;
@@ -94,60 +125,115 @@ const createOrdersIntoDb = async (
       customerId = stripeCustomer.id;
     }
 
+    // Determine if this is a subscription or one-time payment
+    const isSubscription = product.invoiceFrequency !== 'ONE_TIME';
+    let session;
+    let nextBillingDate = null;
+
+    if (isSubscription) {
+      // Create recurring subscription
+      const interval = product.invoiceFrequency === 'WEEKLY' ? 'week' 
+        : product.invoiceFrequency === 'MONTHLY' ? 'month'
+        : 'year';
+
+      // Calculate next billing date
+      nextBillingDate = new Date();
+      if (product.invoiceFrequency === 'WEEKLY') {
+        nextBillingDate.setDate(nextBillingDate.getDate() + 7);
+      } else if (product.invoiceFrequency === 'MONTHLY') {
+        nextBillingDate.setMonth(nextBillingDate.getMonth() + 1);
+      } else {
+        nextBillingDate.setFullYear(nextBillingDate.getFullYear() + 1);
+      }
+
+      session = await stripe.checkout.sessions.create({
+        mode: 'subscription',
+        customer: customerId,
+        line_items: [
+          {
+            price_data: {
+              currency: 'usd',
+              product_data: {
+                name: product.productName,
+                description: `${product.durationWeeks} weeks program - ${product.invoiceFrequency} billing`,
+                images: product.productImage ? [product.productImage] : [],
+              },
+              unit_amount: Math.round(finalPrice * 100),
+              recurring: {
+                interval: interval as 'week' | 'month' | 'year',
+              },
+            },
+            quantity: 1,
+          },
+        ],
+        success_url: `${config.frontend_base_url}/order-success?session_id={CHECKOUT_SESSION_ID}`,
+        cancel_url: `${config.frontend_base_url}/order-cancel`,
+        metadata: {
+          userId,
+          productId,
+          trainerId: trainerId || '',
+          customPricingId: customPricingId || '',
+          orderType: 'subscription',
+        },
+      });
+    } else {
+      // Create one-time payment
+      session = await stripe.checkout.sessions.create({
+        mode: 'payment',
+        customer: customerId,
+        payment_intent_data: {
+          metadata: {
+            userId,
+            userName: user.fullName,
+            productId,
+            productName: product.productName,
+            trainerId: trainerId || '',
+            customPricingId: customPricingId || '',
+            orderType: 'one_time',
+          },
+        },
+        line_items: [
+          {
+            price_data: {
+              currency: 'usd',
+              product_data: {
+                name: product.productName,
+                description: `${product.durationWeeks} weeks program - One-time payment`,
+                images: product.productImage ? [product.productImage] : [],
+              },
+              unit_amount: Math.round(finalPrice * 100),
+            },
+            quantity: 1,
+          },
+        ],
+        success_url: `${config.frontend_base_url}/order-success?session_id={CHECKOUT_SESSION_ID}`,
+        cancel_url: `${config.frontend_base_url}/order-cancel`,
+        metadata: {
+          userId,
+          productId,
+          trainerId: trainerId || '',
+          customPricingId: customPricingId || '',
+          orderType: 'one_time',
+        },
+      });
+    }
+
     // Create order in database
     const order = await tx.order.create({
       data: {
         userId,
         productId,
         trainerId,
-        totalPrice,
+        customPricingId,
+        totalPrice: finalPrice,
+        originalPrice: product.price,
+        discountAmount,
+        durationWeeks: product.durationWeeks,
+        invoiceFrequency: product.invoiceFrequency,
         paymentStatus: PaymentStatus.PENDING,
         status: OrderStatus.PENDING,
-      },
-    });
-
-    // Create Stripe Checkout Session
-    const session = await stripe.checkout.sessions.create({
-      mode: 'payment',
-      payment_intent_data: {
-        metadata: {
-          userId: userId,
-          userName: user.fullName,
-          orderId: order.id,
-          productId: productId,
-          productName: product.productName,
-          trainerId: trainerId || '',
-        },
-      },
-      line_items: [
-        {
-          price_data: {
-            currency: 'usd',
-            product_data: {
-              name: product.productName,
-              description: `${product.productName} - ${product.userId}`,
-            },
-            unit_amount: Math.round(totalPrice * 100),
-          },
-          quantity: 1,
-        },
-      ],
-      customer: customerId,
-      success_url: `${config.frontend_base_url}/order-success?session_id={CHECKOUT_SESSION_ID}`,
-      cancel_url: `${config.frontend_base_url}/order-cancel`,
-      metadata: {
-        userId,
-        orderId: order.id,
-        productId,
-        trainerId: trainerId || '',
-      },
-    });
-
-    // Store session info in order
-    await tx.order.update({
-      where: { id: order.id },
-      data: {
         invoice: session.url || undefined,
+        nextBillingDate,
       },
     });
 
@@ -155,6 +241,13 @@ const createOrdersIntoDb = async (
       orderId: order.id,
       redirectUrl: session.url,
       sessionId: session.id,
+      isSubscription,
+      totalPrice: finalPrice,
+      originalPrice: product.price,
+      discountAmount,
+      message: isSubscription 
+        ? `Subscription order created. You will be charged $${finalPrice} ${product.invoiceFrequency.toLowerCase()}.`
+        : 'One-time payment order created.',
     };
   });
 };
@@ -172,7 +265,7 @@ const getOrdersListFromDb = async (userId: string, role?: string) => {
           productName: true,
           productImage: true,
           price: true,
-          discount: true,
+
         },
       },
       user: {
@@ -222,7 +315,6 @@ const getOrdersByIdFromDb = async (userId: string, orderId: string, role?: strin
           productImage: true,
           productVideo: true,
           price: true,
-          discount: true,
           description: true,
         },
       },
@@ -321,7 +413,6 @@ const getOrdersListFromDbb = async (userId: string, role?: string) => {
           productName: true,
           productImage: true,
           price: true,
-          discount: true,
         },
       },
       user: {
@@ -371,7 +462,6 @@ const getOrdersByIdFromDba = async (userId: string, orderId: string, role?: stri
           productImage: true,
           productVideo: true,
           price: true,
-          discount: true,
           description: true,
         },
       },

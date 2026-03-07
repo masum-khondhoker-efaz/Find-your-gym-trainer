@@ -87,6 +87,7 @@ model User {
   createdRooms               Room[]                      @relation("CreatorRelation")
   supports                   Support[]
   favoriteGyms               FavoriteGyms[]
+  customPricings             CustomPricing[]
 
   @@map("users")
 }
@@ -367,48 +368,126 @@ model Category {
   @@map("categories")
 }
 
+// model Product {
+//   id              String   @id @default(auto()) @map("_id") @db.ObjectId
+//   userId          String   @db.ObjectId
+//   productName     String
+//   productImage    String
+//   productVideo    String?
+//   week            Int
+//   maxDiscountUser Int?
+//   agreement       String?
+//   pdf             String?
+//   isActive        Boolean  @default(false)
+//   price           Float
+//   capacity        Int?
+//   discount        Float    @default(0)
+//   ratingCount     Int      @default(0)
+//   avgRating       Float    @default(0)
+//   totalPurchased  Int      @default(0)
+//   views           Int      @default(0)
+//   description     String?
+//   createdAt       DateTime @default(now())
+//   updatedAt       DateTime @updatedAt
+
+//   // Relationships
+//   user             User              @relation(fields: [userId], references: [id])
+//   reviews          Review[]
+//   favoriteProducts FavoriteProduct[]
+//   orders           Order[]
+
+//   @@map("products")
+// }
+
 model Product {
-  id              String   @id @default(auto()) @map("_id") @db.ObjectId
-  userId          String   @db.ObjectId
-  productName     String
-  productImage    String
-  productVideo    String?
-  week            Int
-  maxDiscountUser Int?
-  agreement       String?
-  pdf             String?
-  isActive        Boolean  @default(false)
-  price           Float
-  capacity        Int?
-  discount        Float    @default(0)
-  ratingCount     Int      @default(0)
-  avgRating       Float    @default(0)
-  totalPurchased  Int      @default(0)
-  views           Int      @default(0)
-  description     String?
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
+  id     String @id @default(auto()) @map("_id") @db.ObjectId
+  userId String @db.ObjectId
+
+  // Header
+  productName  String
+  productImage String
+  productVideo String?
+  status       ProductStatus @default(ACTIVE)
+  isActive     Boolean       @default(false)
+
+  durationWeeks Int
+  hoursPerWeek  Int?
+  capacity      Int?
+  price         Float
+
+  invoiceFrequency InvoiceFrequency
+
+  // About
+  description String?
+
+  // Details
+  bulletPoints String[]
+
+  // Agreement
+  agreementPdf String?
+
+  // Statistics
+  ratingCount    Int   @default(0)
+  avgRating      Float @default(0)
+  totalPurchased Int   @default(0)
+  views          Int   @default(0)
+
+  // Timestamps
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   // Relationships
   user             User              @relation(fields: [userId], references: [id])
   reviews          Review[]
   favoriteProducts FavoriteProduct[]
   orders           Order[]
+  customPricings   CustomPricing[]
 
   @@map("products")
 }
 
+model CustomPricing {
+  id        String @id @default(auto()) @map("_id") @db.ObjectId
+  userId    String @db.ObjectId
+  productId String @db.ObjectId
+
+  customPrice Float
+  limit       Int
+  startDate   DateTime
+  endDate     DateTime
+  weeks       Int
+
+  invoiceFrequency InvoiceFrequency
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Relationships
+  user    User    @relation(fields: [userId], references: [id])
+  product Product @relation(fields: [productId], references: [id])
+
+  @@map("custom_pricings")
+}
+
 model Order {
-  id            String        @id @default(auto()) @map("_id") @db.ObjectId
-  userId        String        @db.ObjectId
-  productId     String        @db.ObjectId
-  trainerId     String?       @db.ObjectId
-  totalPrice    Float
-  invoice       String?
-  paymentStatus PaymentStatus
-  status        OrderStatus
-  createdAt     DateTime      @default(now())
-  updatedAt     DateTime      @updatedAt
+  id                   String             @id @default(auto()) @map("_id") @db.ObjectId
+  userId               String             @db.ObjectId
+  productId            String             @db.ObjectId
+  trainerId            String?            @db.ObjectId
+  customPricingId      String?            @db.ObjectId
+  totalPrice           Float
+  originalPrice        Float
+  discountAmount       Float              @default(0)
+  durationWeeks        Int
+  invoiceFrequency     InvoiceFrequency
+  invoice              String?
+  paymentStatus        PaymentStatus
+  status               OrderStatus
+  stripeSubscriptionId String?
+  subscriptionStatus   SubscriptionStatus @default(ACTIVE)
+  nextBillingDate      DateTime?
+  createdAt            DateTime           @default(now())
+  updatedAt            DateTime           @updatedAt
 
   // Relationships
   user    User     @relation(fields: [userId], references: [id])
@@ -879,6 +958,18 @@ enum OrderStatus {
   RETURNED
 }
 
+enum InvoiceFrequency {
+  ONE_TIME
+  WEEKLY
+  MONTHLY
+  ANNUALLY
+}
+
+enum ProductStatus {
+  ACTIVE
+  INACTIVE
+}
+
 enum ReviewType {
   PRODUCT
   SYSTEM
@@ -969,6 +1060,13 @@ enum SupportStatus {
   IN_PROGRESS
   RESOLVED
   CLOSED
+}
+
+enum SubscriptionStatus {
+  ACTIVE
+  PAUSED
+  CANCELLED
+  EXPIRED
 }
 
 enum UserStatus {

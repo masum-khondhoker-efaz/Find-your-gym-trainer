@@ -219,54 +219,67 @@ const handleWebHook = catchAsync(async (req: any, res: any) => {
       // SECTION 1: Handle PRODUCT ORDER Payments (mode = 'payment')
       // =================================================================
       if (session.mode === 'payment') {
-        const orderId = session.metadata?.orderId;
         const productId = session.metadata?.productId;
         const userId = session.metadata?.userId;
+        const trainerId = session.metadata?.trainerId;
+        const customPricingId = session.metadata?.customPricingId;
 
-        // Check if this is a product order
-        if (orderId && productId && userId) {
-          console.log('Processing product order payment for order:', orderId);
+        if (productId && userId) {
+          console.log('Processing product order payment for user:', userId);
 
           try {
-            // Update order status
-            await prisma.order.update({
-              where: { id: orderId },
-              data: {
-                paymentStatus: PaymentStatus.COMPLETED,
-                status: OrderStatus.PROCESSING,
-              },
-            });
-
-            // Create payment record
-            await prisma.payment.create({
-              data: {
+            // Find the pending order
+            const order = await prisma.order.findFirst({
+              where: {
                 userId,
-                paymentIntentId: session.payment_intent as string,
-                paymentAmount: session.amount_total
-                  ? session.amount_total / 100
-                  : 0,
-                amountProvider: session.customer as string,
-                status: PaymentStatus.COMPLETED,
-                invoice: session.url,
+                productId,
+                paymentStatus: PaymentStatus.PENDING,
+                status: OrderStatus.PENDING,
+              },
+              orderBy: {
+                createdAt: 'desc',
               },
             });
 
-            // Increment product purchase count
-            await prisma.product.update({
-              where: { id: productId },
-              data: {
-                totalPurchased: { increment: 1 },
-              },
-            });
+            if (order) {
+              // Update order status
+              await prisma.order.update({
+                where: { id: order.id },
+                data: {
+                  paymentStatus: PaymentStatus.COMPLETED,
+                  status: OrderStatus.COMPLETED,
+                },
+              });
 
-            console.log('✅ Product order payment completed successfully');
+              // Create payment record
+              await prisma.payment.create({
+                data: {
+                  userId,
+                  paymentIntentId: session.payment_intent as string,
+                  paymentAmount: session.amount_total
+                    ? session.amount_total / 100
+                    : 0,
+                  amountProvider: session.customer as string,
+                  status: PaymentStatus.COMPLETED,
+                  invoice: session.url,
+                },
+              });
+
+              // Increment product purchase count
+              await prisma.product.update({
+                where: { id: productId },
+                data: {
+                  totalPurchased: { increment: 1 },
+                },
+              });
+
+              console.log('✅ Product order payment completed successfully');
+            } else {
+              console.log('⚠️ No pending order found for this payment');
+            }
           } catch (error) {
             console.error('❌ Error processing product order:', error);
           }
-        }
-        // If not an order, it might be a cart/checkout payment
-        else {
-          console.log('Regular payment session completed (not an order)');
         }
       }
 
@@ -275,91 +288,67 @@ const handleWebHook = catchAsync(async (req: any, res: any) => {
       // =================================================================
       else if (session.mode === 'subscription') {
         const userId = session.metadata?.userId;
+        const productId = session.metadata?.productId;
         const subscriptionId = session.subscription as string;
         const customerId = session.customer as string;
 
-        if (userId && subscriptionId) {
-          console.log('Processing subscription for user:', userId);
+        if (userId && productId && subscriptionId) {
+          console.log('Processing subscription order for user:', userId);
 
           try {
-            // Retrieve subscription details from Stripe
-            // const subscription = await stripe.subscriptions.retrieve(subscriptionId);
+            // Find the pending order
+            const order = await prisma.order.findFirst({
+              where: {
+                userId,
+                productId,
+                paymentStatus: PaymentStatus.PENDING,
+                status: OrderStatus.PENDING,
+              },
+              orderBy: {
+                createdAt: 'desc',
+              },
+            });
 
-            // Update user subscription info
-            // await prisma.user.update({
-            //   where: { id: userId },
-            //   data: {
-            //     stripeSubscriptionId: subscriptionId,
-            //     stripeCustomerId: customerId,
-            //     isSubscribed: true,
-            //     subscriptionPlan: session.metadata?.plan as any,
-            //     subscriptionEnd: subscription.current_period_end
-            //       ? new Date(subscription.current_period_end * 1000)
-            //       : undefined,
-            //   },
-            // });
-
-            // Create or update user subscription record
-            // await prisma.userSubscription.upsert({
-            //   where: { userId },
-            //   create: {
-            //     userId,
-            //     subscriptionId,
-            //     status: 'ACTIVE',
-            //     currentPeriodStart: subscription.current_period_start
-            //       ? new Date(subscription.current_period_start * 1000)
-            //       : new Date(),
-            //     currentPeriodEnd: subscription.current_period_end
-            //       ? new Date(subscription.current_period_end * 1000)
-            //       : new Date(),
-            //   },
-            //   update: {
-            //     subscriptionId,
-            //     status: 'ACTIVE',
-            //     currentPeriodStart: subscription.current_period_start
-            //       ? new Date(subscription.current_period_start * 1000)
-            //       : undefined,
-            //     currentPeriodEnd: subscription.current_period_end
-            //       ? new Date(subscription.current_period_end * 1000)
-            //       : undefined,
-            //   },
-            // });
-
-            console.log('✅ Subscription activated successfully');
-          } catch (error) {
-            console.error('❌ Error processing subscription:', error);
-          }
-        }
-      }
-
-      // =================================================================
-      // SECTION 3: Handle SETUP Mode (saving payment method)
-      // =================================================================
-      else if (session.mode === 'setup') {
-        const userId = session.metadata?.userId;
-        const setupIntentId = session.setup_intent as string;
-
-        if (userId && setupIntentId) {
-          console.log('Processing payment method setup for user:', userId);
-
-          try {
-            // Retrieve setup intent to get payment method
-            const setupIntent =
-              await stripe.setupIntents.retrieve(setupIntentId);
-            const paymentMethodId = setupIntent.payment_method as string;
-
-            if (paymentMethodId) {
-              // Set as default payment method for customer
-              await stripe.customers.update(session.customer as string, {
-                invoice_settings: {
-                  default_payment_method: paymentMethodId,
+            if (order) {
+              // Update order with subscription info
+              await prisma.order.update({
+                where: { id: order.id },
+                data: {
+                  paymentStatus: PaymentStatus.COMPLETED,
+                  status: OrderStatus.COMPLETED,
+                  stripeSubscriptionId: subscriptionId,
+                  subscriptionStatus: 'ACTIVE',
                 },
               });
 
-              console.log('✅ Payment method saved and set as default');
+              // Create payment record
+              await prisma.payment.create({
+                data: {
+                  userId,
+                  paymentIntentId: subscriptionId,
+                  paymentAmount: session.amount_total
+                    ? session.amount_total / 100
+                    : 0,
+                  amountProvider: customerId,
+                  status: PaymentStatus.COMPLETED,
+                  invoice: session.url,
+                },
+              });
+
+              // Increment product purchase count
+              await prisma.product.update({
+                where: { id: productId },
+                data: {
+                  totalPurchased: { increment: 1 },
+                },
+              });
+
+              console.log('✅ Subscription order created successfully');
+            } else {
+              console.log('⚠️ No pending order found for this subscription');
             }
           } catch (error) {
-            console.error('❌ Error processing payment method setup:', error);
+            console.error('❌ Error processing subscription order:', error);
           }
         }
       }
@@ -1014,20 +1003,93 @@ const handleWebHook = catchAsync(async (req: any, res: any) => {
     }
 
     case 'invoice.payment_succeeded': {
-      const paidInvoice = event.data.object as Stripe.Invoice;
-      const userId = paidInvoice.lines.data[0]?.metadata?.userId;
+      const paidInvoice = event.data.object as any;
+      const subscriptionId = typeof paidInvoice.subscription === 'string' ? paidInvoice.subscription : paidInvoice.subscription?.id;
+      const customerId = typeof paidInvoice.customer === 'string' ? paidInvoice.customer : paidInvoice.customer?.id;
+      const invoiceId = paidInvoice.id;
+      const paymentIntentId = typeof paidInvoice.payment_intent === 'string' ? paidInvoice.payment_intent : paidInvoice.payment_intent?.id;
 
-      if (!userId) {
-        console.log('Missing metadata in subscription');
+      if (!subscriptionId) {
+        console.log('No subscription ID in invoice');
         break;
       }
-      const user = await prisma.user.findFirst({
-        where: { id: userId },
-      });
-      if (!user) {
-        console.log('User not found for subscription creation');
-        break;
-      }
+
+      try {
+        // Check if this is a product order subscription
+        const productOrder = await prisma.order.findFirst({
+          where: {
+            stripeSubscriptionId: subscriptionId,
+          },
+          include: {
+            user: true,
+            product: true,
+          },
+        });
+
+        if (productOrder) {
+          // Handle product subscription payment
+          console.log('Processing recurring payment for product order:', productOrder.id);
+
+          // Calculate next billing date based on invoice frequency
+          let nextBillingDate = new Date();
+          if (productOrder.invoiceFrequency === 'WEEKLY') {
+            nextBillingDate.setDate(nextBillingDate.getDate() + 7);
+          } else if (productOrder.invoiceFrequency === 'MONTHLY') {
+            nextBillingDate.setMonth(nextBillingDate.getMonth() + 1);
+          } else if (productOrder.invoiceFrequency === 'ANNUALLY') {
+            nextBillingDate.setFullYear(nextBillingDate.getFullYear() + 1);
+          }
+
+          // Update order with next billing date
+          await prisma.order.update({
+            where: { id: productOrder.id },
+            data: {
+              nextBillingDate,
+              subscriptionStatus: 'ACTIVE',
+            },
+          });
+
+          // Create payment record for this recurring payment
+          const existingPayment = await prisma.payment.findFirst({
+            where: {
+              invoiceId: invoiceId,
+            },
+          });
+
+          if (!existingPayment) {
+            await prisma.payment.create({
+              data: {
+                userId: productOrder.userId,
+                paymentIntentId: paymentIntentId || '',
+                invoiceId: invoiceId,
+                stripeSubscriptionId: subscriptionId || '',
+                paymentAmount: paidInvoice.amount_paid
+                  ? paidInvoice.amount_paid / 100
+                  : 0,
+                amountProvider: customerId || '',
+                status: PaymentStatus.COMPLETED,
+                invoice: paidInvoice.hosted_invoice_url || '',
+              },
+            });
+            console.log('✅ Created payment record for recurring product subscription');
+          }
+        } else {
+          // Handle user subscription payment (existing logic)
+          const userId = paidInvoice.lines.data[0]?.metadata?.userId;
+
+          if (!userId) {
+            console.log('Missing metadata in subscription');
+            break;
+          }
+          
+          const user = await prisma.user.findFirst({
+            where: { id: userId },
+          });
+          
+          if (!user) {
+            console.log('User not found for subscription creation');
+            break;
+          }
 
       // Fallback email
       if (user.email) {
@@ -1191,6 +1253,11 @@ const handleWebHook = catchAsync(async (req: any, res: any) => {
           console.log('Fallback email sending failed:', emailError);
         }
       }
+        }
+      } catch (error) {
+        console.error('❌ Error processing invoice.payment_succeeded:', error);
+      }
+      
       break;
     }
 

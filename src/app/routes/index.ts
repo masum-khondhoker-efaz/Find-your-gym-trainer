@@ -5,7 +5,7 @@ import { specialtiesRoutes } from '../modules/specialties/specialties.routes';
 import { serviceTypesRoutes } from '../modules/serviceTypes/serviceTypes.routes';
 import { termAndConditionRoutes } from '../modules/termAndCondition/termAndCondition.routes';
 import { privacyPolicyRoutes } from '../modules/privacyPolicy/privacyPolicy.routes';
-// import { reviewRoutes } from '../modules/review/review.routes';
+import { reviewRoutes } from '../modules/review/review.routes';
 // import { categoryRoutes } from '../modules/category/category.routes';
 
 import { aboutUsRoutes } from '../modules/aboutUs/aboutUs.routes';
@@ -22,6 +22,7 @@ import { likeRoutes } from '../modules/like/like.routes';
 import { commentRoutes } from '../modules/comment/comment.routes';
 import { shareRoutes } from '../modules/share/share.routes';
 import { productRoutes } from '../modules/product/product.routes';
+import { customPricingRoutes } from '../modules/customPricing/customPricing.routes';
 import { trainersRoutes } from '../modules/trainers/trainers.routes';
 import { favoriteTrainerRoutes } from '../modules/favoriteTrainer/favoriteTrainer.routes';
 import { favoriteProductRoutes } from '../modules/favoriteProduct/favoriteProduct.routes';
@@ -61,6 +62,14 @@ const moduleRoutes = [
     route: productRoutes,
   },
   {
+    path: '/custom-pricing',
+    route: customPricingRoutes,
+  },
+  {
+    path: '/custom-pricings',
+    route: customPricingRoutes,
+  },
+  {
     path: '/terms-&-conditions',
     route: termAndConditionRoutes,
   },
@@ -80,10 +89,10 @@ const moduleRoutes = [
     path: '/faqs',
     route: faqRoutes,
   },
-  // {
-  //   path: '/reviews',
-  //   route: reviewRoutes,
-  // },
+  {
+    path: '/reviews',
+    route: reviewRoutes,
+  },
   // {
   //   path: '/categories',
   //   route: categoryRoutes,

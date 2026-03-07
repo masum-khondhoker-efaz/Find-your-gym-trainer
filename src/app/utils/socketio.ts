@@ -312,39 +312,39 @@ export function setupSocketIO(server: HTTPServer) {
             },
           },
         });
-        // Get unique user IDs from rooms
-        // Prevent self-messaging
-        if (payload.receiverId === id) {
-          socket.emit('error', { message: 'Cannot send message to yourself' });
-          return;
-        }
+        // // Get unique user IDs from rooms
+        // // Prevent self-messaging
+        // if (payload.receiverId === id) {
+        //   socket.emit('error', { message: 'Cannot send message to yourself' });
+        //   return;
+        // }
 
-        // Check if user is a trainer and verify subscription
-        if (user.role === UserRoleEnum.TRAINER) {
-          if (!user.isSubscribed || user.subscriptionEnd < new Date()) {
-            socket.emit('error', {
-              message: 'Active subscription required to send messages. Please subscribe to continue chatting.',
-            });
-            return;
-          }
-        }
+        // // Check if user is a trainer and verify subscription
+        // if (user.role === UserRoleEnum.TRAINER) {
+        //   if (!user.isSubscribed || user.subscriptionEnd < new Date()) {
+        //     socket.emit('error', {
+        //       message: 'Active subscription required to send messages. Please subscribe to continue chatting.',
+        //     });
+        //     return;
+        //   }
+        // }
 
-        // Fetch receiver details
-        const receiver = await prisma.user.findUnique({
-          where: { id: payload.receiverId },
-          select: { 
-            id: true, 
-            role: true, 
-            isSubscribed: true, 
-            subscriptionEnd: true 
-          },
-        });
+        // // Fetch receiver details
+        // const receiver = await prisma.user.findUnique({
+        //   where: { id: payload.receiverId },
+        //   select: { 
+        //     id: true, 
+        //     role: true, 
+        //     isSubscribed: true, 
+        //     subscriptionEnd: true 
+        //   },
+        // });
 
-        if (!receiver) {
-          socket.emit('error', { message: 'Receiver not found' });
-          return;
-        }
-        // Get unique rooms
+        // if (!receiver) {
+        //   socket.emit('error', { message: 'Receiver not found' });
+        //   return;
+        // }
+        // // Get unique rooms
 
         const userIds = Array.from(
           new Set(

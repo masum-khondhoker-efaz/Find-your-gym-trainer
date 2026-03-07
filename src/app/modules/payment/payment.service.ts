@@ -280,7 +280,7 @@ const cancelPaymentRequestToStripe = async (
       throw new AppError(httpStatus.BAD_REQUEST, 'Booking not found');
     }
     
-      return updateOrder;
+    return findBooking;
     
   });
 };

@@ -22,8 +22,8 @@ const createProduct = catchAsync(async (req, res) => {
         body.productImage = url;
       } else if (file.fieldname === 'productVideo') {
         body.productVideo = url;
-      } else if (file.fieldname === 'pdf') {
-        body.pdf = url;
+      } else if (file.fieldname === 'agreementPdf') {
+        body.agreementPdf = url;
       }
     } catch (error) {
       throw new AppError(
@@ -31,6 +31,11 @@ const createProduct = catchAsync(async (req, res) => {
         `Failed to upload ${file.fieldname}`,
       );
     }
+  }
+
+  // Ensure bulletPoints is an array
+  if (body.bulletPoints && typeof body.bulletPoints === 'string') {
+    body.bulletPoints = [body.bulletPoints];
   }
 
   const result = await productService.createProductIntoDb(user.id, body);
@@ -126,12 +131,12 @@ const updateProduct = catchAsync(async (req, res) => {
           await deleteFileFromSpace(existingProduct[0].productVideo);
         }
         body.productVideo = url;
-      } else if (file.fieldname === 'pdf') {
-        // Delete old pdf if exists
-        if (existingProduct[0]?.pdf) {
-          await deleteFileFromSpace(existingProduct[0].pdf);
+      } else if (file.fieldname === 'agreementPdf') {
+        // Delete old agreementPdf if exists
+        if (existingProduct[0]?.agreementPdf) {
+          await deleteFileFromSpace(existingProduct[0].agreementPdf);
         }
-        body.pdf = url;
+        body.agreementPdf = url;
       }
     } catch (error) {
       throw new AppError(
@@ -139,6 +144,11 @@ const updateProduct = catchAsync(async (req, res) => {
         `Failed to upload ${file.fieldname}`,
       );
     }
+  }
+
+  // Ensure bulletPoints is an array if provided
+  if (body.bulletPoints && typeof body.bulletPoints === 'string') {
+    body.bulletPoints = [body.bulletPoints];
   }
 
   const result = await productService.updateProductIntoDb(

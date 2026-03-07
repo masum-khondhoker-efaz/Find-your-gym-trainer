@@ -1,15 +1,15 @@
 import prisma from '../../utils/prisma';
-import { UserRoleEnum, UserStatus } from '@prisma/client';
+import { ProductStatus, UserRoleEnum, UserStatus } from '@prisma/client';
 import AppError from '../../errors/AppError';
 import httpStatus from 'http-status';
 import { deleteFileFromSpace } from '../../utils/deleteImage';
 import { ISearchAndFilterOptions } from '../../interface/pagination.type';
 
 const createProductIntoDb = async (userId: string, data: any) => {
-  const { productName, productImage, productVideo, pdf } = data;
+  const { productName, productImage, productVideo, agreementPdf } = data;
 
   const cleanupFiles = async () => {
-    const files = [productImage, productVideo, pdf].filter(Boolean);
+    const files = [productImage, productVideo, agreementPdf].filter(Boolean);
     await Promise.all(files.map(file => deleteFileFromSpace(file)));
   };
 
@@ -56,6 +56,7 @@ const getProductListFromDb = async (
 
   const whereClause: any = {
     isActive: true,
+    status: ProductStatus.ACTIVE
   };
 
   // Search filter
@@ -97,6 +98,22 @@ const getProductListFromDb = async (
     }
   }
 
+  // Invoice frequency filter
+  if (options?.invoiceFrequency) {
+    whereClause.invoiceFrequency = options.invoiceFrequency;
+  }
+
+  // Duration weeks filter
+  if (options?.durationWeeks !== undefined) {
+    const durationValue = String(options.durationWeeks);
+    whereClause.durationWeeks = parseInt(durationValue);
+  }
+
+  // Status filter
+  if (options?.status) {
+    whereClause.status = options.status;
+  }
+
   // Service type filter (via trainer relationship)
   if (options?.serviceName) {
     whereClause.user = {
@@ -114,29 +131,34 @@ const getProductListFromDb = async (
     };
   }
 
-  // Week filter
-  if (options?.week !== undefined) {
-    const weekValue = String(options.week);
-    whereClause.week = parseInt(weekValue);
-  }
+  
+
 
   const sortBy = options?.sortBy || 'createdAt';
   const sortOrder = options?.sortOrder || 'desc';
+
+  // Filter by specific trainer ID
+  if (options?.trainerId) {
+    whereClause.userId = options.trainerId;
+  }
 
   // Trainer name filter
   if (options?.trainerName) {
     whereClause.user = {
       ...whereClause.user,
+      fullName: {
+        contains: options.trainerName,
+        mode: 'insensitive',
+      },
+    };
+  }
+
+  // Filter products only from trainers (users with trainer role)
+  if (options?.onlyTrainers === true) {
+    whereClause.user = {
+      ...whereClause.user,
       trainers: {
-        some: {
-          ...whereClause.user?.trainers?.some,
-          user: {
-            fullName: {
-              contains: options.trainerName,
-              mode: 'insensitive',
-            },
-          },
-        },
+        some: {},
       },
     };
   }
@@ -180,12 +202,36 @@ const getProductListFromDb = async (
   const totalPages = Math.ceil(total / limit);
   const page = Number(options?.page || Math.floor(offset / limit) + 1);
 
+  // Get active custom pricing for each product
+  const now = new Date();
+  const productIds = result.map(p => p.id);
+  const activeCustomPricings = await prisma.customPricing.findMany({
+    where: {
+      productId: { in: productIds },
+      startDate: { lte: now },
+      endDate: { gte: now },
+    },
+    orderBy: {
+      customPrice: 'asc',
+    },
+  });
+
+  // Create a map of productId to active custom pricing
+  const customPricingMap = new Map();
+  activeCustomPricings.forEach(cp => {
+    if (!customPricingMap.has(cp.productId)) {
+      customPricingMap.set(cp.productId, cp);
+    }
+  });
+
   // Flatten the response data
   const flattenedResult = result.map(product => {
     // const trainer = product.user?.trainers?.[0];
     // const serviceTypes = trainer?.trainerServiceTypes?.map(tst => tst.serviceType) || [];
     
     const { user, ...productWithoutUser } = product;
+    const activeCustomPricing = customPricingMap.get(product.id);
+
     return {
       ...productWithoutUser,
       trainerName: user?.fullName,
@@ -193,6 +239,12 @@ const getProductListFromDb = async (
       trainerImage: user?.image,
       trainerId: user?.id,
       // serviceTypes: serviceTypes,
+      // Active custom pricing info
+      hasActiveDiscount: !!activeCustomPricing,
+      activePrice: activeCustomPricing?.customPrice || product.price,
+      originalPrice: product.price,
+      discountEndDate: activeCustomPricing?.endDate || null,
+      customPricingLimit: activeCustomPricing?.limit || null,
     };
   });
 
@@ -273,6 +325,19 @@ const getAProductByPublicFromDb = async (productId: string) => {
     throw new AppError(httpStatus.NOT_FOUND, 'product not found');
   }
 
+  // Get active custom pricing for this product
+  const now = new Date();
+  const activeCustomPricing = await prisma.customPricing.findFirst({
+    where: {
+      productId: productId,
+      startDate: { lte: now },
+      endDate: { gte: now },
+    },
+    orderBy: {
+      customPrice: 'asc',
+    },
+  });
+
   // Flatten the response data
   const { user, ...productWithoutUser } = result;
   return {
@@ -283,6 +348,12 @@ const getAProductByPublicFromDb = async (productId: string) => {
     trainerImage: user?.image,
     trainerId: user?.id,
     // serviceTypes: serviceTypes,
+    // Active custom pricing info
+    hasActiveDiscount: !!activeCustomPricing,
+    activePrice: activeCustomPricing?.customPrice || result.price,
+    originalPrice: result.price,
+    discountEndDate: activeCustomPricing?.endDate || null,
+    customPricingLimit: activeCustomPricing?.limit || null,
   };
 }
 
@@ -445,8 +516,8 @@ const deleteProductItemFromDb = async (userId: string, productId: string) => {
   if (deletedItem.productVideo) {
     await deleteFileFromSpace(deletedItem.productVideo);
   }
-  if (deletedItem.pdf) {
-    await deleteFileFromSpace(deletedItem.pdf);
+  if (deletedItem.agreementPdf) {
+    await deleteFileFromSpace(deletedItem.agreementPdf);
   }
 
   // add to the DeletedProducts table for record-keeping (optional)
@@ -457,7 +528,8 @@ const deleteProductItemFromDb = async (userId: string, productId: string) => {
       productName: deletedItem.productName,
       description: deletedItem.description,
       price: deletedItem.price,
-      discount: deletedItem.discount,
+      discount: 0, // New product schema doesn't have discount
+      productImages: [deletedItem.productImage].filter(Boolean), // Array expected
       deletedAt: new Date(),
     },
   });

@@ -54,8 +54,8 @@ export interface ISearchAndFilterOptions extends IPaginationOptions {
   email?: string;
   phoneNumber?: string;
   address?: string;
-  week?: number | string;
   trainerName?: string;
+  trainerId?: string;
   isProfileComplete?: boolean | string;
 
   // Trainer-related filters
@@ -71,7 +71,12 @@ export interface ISearchAndFilterOptions extends IPaginationOptions {
   productName?: string;
   description?: string;
   content?: string;
+  onlyTrainers?: boolean | string;
   priceRange?: 'low' | 'medium' | 'high';
+  invoiceFrequency?: 'ONE_TIME' | 'WEEKLY' | 'MONTHLY' | 'ANNUALLY';
+  durationWeeks?: number | string;
+  hoursPerWeek?: number | string;
+  week?: number | string; // Deprecated: use durationWeeks instead, kept for backwards compatibility
 
 
   // Founding Team-related filters
