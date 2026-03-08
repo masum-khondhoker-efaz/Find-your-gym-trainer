@@ -1,9 +1,11 @@
 import prisma from '../../utils/prisma';
-import { OrderStatus, PaymentStatus, ProductStatus } from '@prisma/client';
+import { OrderState, OrderStatus, PaymentStatus, ProductStatus } from '@prisma/client';
 import AppError from '../../errors/AppError';
 import httpStatus from 'http-status';
 import Stripe from 'stripe';
 import config from '../../../config';
+import { ISearchAndFilterOptions } from '../../interface/pagination.type';
+import { calculatePagination, formatPaginationResponse } from '../../utils/pagination';
 
 const stripe = new Stripe(config.stripe.stripe_secret_key as string, {
   apiVersion: '2025-08-27.basil',
@@ -171,7 +173,7 @@ const createOrdersIntoDb = async (
         metadata: {
           userId,
           productId,
-          trainerId: trainerId || '',
+          trainerId: product.userId || trainerId || '',
           customPricingId: customPricingId || '',
           orderType: 'subscription',
         },
@@ -187,7 +189,7 @@ const createOrdersIntoDb = async (
             userName: user.fullName,
             productId,
             productName: product.productName,
-            trainerId: trainerId || '',
+            trainerId: product.userId || trainerId || '',
             customPricingId: customPricingId || '',
             orderType: 'one_time',
           },
@@ -211,7 +213,7 @@ const createOrdersIntoDb = async (
         metadata: {
           userId,
           productId,
-          trainerId: trainerId || '',
+          trainerId: product.userId || trainerId || '',
           customPricingId: customPricingId || '',
           orderType: 'one_time',
         },
@@ -223,7 +225,7 @@ const createOrdersIntoDb = async (
       data: {
         userId,
         productId,
-        trainerId,
+        trainerId: product.userId || trainerId || null,
         customPricingId,
         totalPrice: finalPrice,
         originalPrice: product.price,
@@ -232,7 +234,7 @@ const createOrdersIntoDb = async (
         invoiceFrequency: product.invoiceFrequency,
         paymentStatus: PaymentStatus.PENDING,
         status: OrderStatus.PENDING,
-        invoice: session.url || undefined,
+        // invoice: session.url || undefined,
         nextBillingDate,
       },
     });
@@ -252,12 +254,74 @@ const createOrdersIntoDb = async (
   });
 };
 
-const getOrdersListFromDb = async (userId: string, role?: string) => {
+const getOrdersListFromDb = async (userId: string, role?: string, options?: ISearchAndFilterOptions) => {
   // Check if admin
   const isAdmin = role === 'ADMIN' || role === 'SUPER_ADMIN';
 
+  // Calculate pagination
+  const paginationOptions = calculatePagination({
+    page: options?.page || 1,
+    limit: options?.limit || 10,
+    sortBy: options?.sortBy || 'createdAt',
+    sortOrder: options?.sortOrder || 'desc',
+  });
+
+  // Build where conditions
+  const whereConditions: any = isAdmin ? {} : { userId };
+
+  // Add status filter
+  if (options?.orderStatus) {
+    whereConditions.status = options.orderStatus as OrderStatus;
+  }
+
+  // Add currentState filter
+  if (options?.currentState) {
+    whereConditions.currentState = options.currentState as OrderState;
+  }
+
+  // Add payment status filter
+  if (options?.paymentStatus) {
+    whereConditions.paymentStatus = options.paymentStatus as PaymentStatus;
+  }
+
+  // Add search term for order-related fields
+  if (options?.searchTerm) {
+    whereConditions.OR = [
+      {
+        product: {
+          productName: {
+            contains: options.searchTerm,
+            mode: 'insensitive',
+          },
+        },
+      },
+      {
+        user: {
+          fullName: {
+            contains: options.searchTerm,
+            mode: 'insensitive',
+          },
+        },
+      },
+      {
+        user: {
+          email: {
+            contains: options.searchTerm,
+            mode: 'insensitive',
+          },
+        },
+      },
+    ];
+  }
+
+  // Get total count
+  const total = await prisma.order.count({
+    where: whereConditions,
+  });
+
+  // Fetch paginated results
   const result = await prisma.order.findMany({
-    where: isAdmin ? {} : { userId },
+    where: whereConditions,
     include: {
       product: {
         select: {
@@ -265,16 +329,15 @@ const getOrdersListFromDb = async (userId: string, role?: string) => {
           productName: true,
           productImage: true,
           price: true,
-
         },
       },
-      user: {
-        select: {
-          id: true,
-          fullName: true,
-          email: true,
-        },
-      },
+      // user: {
+      //   select: {
+      //     id: true,
+      //     fullName: true,
+      //     email: true,
+      //   },
+      // },
       trainer: {
         select: {
           userId: true,
@@ -288,15 +351,26 @@ const getOrdersListFromDb = async (userId: string, role?: string) => {
       },
     },
     orderBy: {
-      createdAt: 'desc',
+      [paginationOptions.sortBy]: paginationOptions.sortOrder,
     },
+    skip: paginationOptions.skip,
+    take: paginationOptions.limit,
   });
 
-  if (result.length === 0) {
-    return { message: 'No orders found' };
+  const flattenedResult = result.map((order) => ({
+    ...order,
+    trainer: order.trainer ? {
+      userId: order.trainer.userId,
+      trainerName: order.trainer.user?.fullName,
+      trainerEmail: order.trainer.user?.email,
+    } : null,
+  }));
+
+  if (flattenedResult.length === 0) {
+    return formatPaginationResponse([], total, paginationOptions.page, paginationOptions.limit);
   }
 
-  return result;
+  return formatPaginationResponse(flattenedResult, total, paginationOptions.page, paginationOptions.limit);
 };
 
 const getOrdersByIdFromDb = async (userId: string, orderId: string, role?: string) => {

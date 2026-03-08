@@ -9,6 +9,7 @@ import {
   OrderStatus,
   PaymentStatus,
   SubscriptionPlanStatus,
+  SubscriptionStatus,
 } from '@prisma/client';
 import emailSender from '../../utils/emailSender';
 import AppError from '../../errors/AppError';
@@ -246,8 +247,10 @@ const handleWebHook = catchAsync(async (req: any, res: any) => {
               await prisma.order.update({
                 where: { id: order.id },
                 data: {
+                  // invoice: session.url || undefined,
                   paymentStatus: PaymentStatus.COMPLETED,
                   status: OrderStatus.COMPLETED,
+                  customPricingId: customPricingId || undefined,
                 },
               });
 
@@ -255,13 +258,15 @@ const handleWebHook = catchAsync(async (req: any, res: any) => {
               await prisma.payment.create({
                 data: {
                   userId,
+                  orderId: order.id,
+                  productId,
                   paymentIntentId: session.payment_intent as string,
                   paymentAmount: session.amount_total
                     ? session.amount_total / 100
                     : 0,
                   amountProvider: session.customer as string,
                   status: PaymentStatus.COMPLETED,
-                  invoice: session.url,
+                  // invoice: session.url,
                 },
               });
 
@@ -317,7 +322,7 @@ const handleWebHook = catchAsync(async (req: any, res: any) => {
                   paymentStatus: PaymentStatus.COMPLETED,
                   status: OrderStatus.COMPLETED,
                   stripeSubscriptionId: subscriptionId,
-                  subscriptionStatus: 'ACTIVE',
+                  subscriptionStatus: SubscriptionStatus.ACTIVE,
                 },
               });
 
@@ -331,7 +336,7 @@ const handleWebHook = catchAsync(async (req: any, res: any) => {
                     : 0,
                   amountProvider: customerId,
                   status: PaymentStatus.COMPLETED,
-                  invoice: session.url,
+                  // invoice: session.url,
                 },
               });
 
@@ -340,6 +345,8 @@ const handleWebHook = catchAsync(async (req: any, res: any) => {
                 where: { id: productId },
                 data: {
                   totalPurchased: { increment: 1 },
+                  totalRevenue: { increment: session.amount_total ? session.amount_total / 100 : 0 },
+                  activeClients: { increment: 1 },
                 },
               });
 
@@ -356,11 +363,31 @@ const handleWebHook = catchAsync(async (req: any, res: any) => {
       break;
     }
 
+    // case 'charge.succeeded': {
+    //   const charge = event.data.object as Stripe.Charge;
+    //     console.log('Charge succeeded:', charge.id);
+
+    //     if(charge.status === 'succeeded' && charge.payment_intent) {
+    //     }
+    //   break;
+    // }
+        
+
     case 'charge.updated': {
       const charge = event.data.object as Stripe.Charge;
 
       // Only process if charge succeeded and has a payment intent
       if (charge.status === 'succeeded' && charge.payment_intent) {
+        // Get the payment record before updating
+        const paymentRecord = await prisma.payment.findFirst({
+          where: { paymentIntentId: charge.payment_intent as string },
+        });
+
+        if (!paymentRecord) {
+          console.log('No payment record found for charge:', charge.id);
+          return;
+        }
+
         // Update payment record in database
         await prisma.payment.updateMany({
           where: { paymentIntentId: charge.payment_intent as string },
@@ -370,8 +397,19 @@ const handleWebHook = catchAsync(async (req: any, res: any) => {
           },
         });
 
+        // update product
+          if (paymentRecord.productId) {
+            await prisma.product.update({
+              where: { id: paymentRecord.productId },
+              data: {
+                totalRevenue: { increment: charge.amount / 100 },
+                activeClients: { increment: 1 },
+              },
+            });
+          }
+
         // Check if this charge is for an ORDER (product purchase)
-        const orderId = charge.metadata?.orderId;
+        const orderId = paymentRecord.orderId;
 
         if (orderId) {
           // This is a product order payment
@@ -383,6 +421,7 @@ const handleWebHook = catchAsync(async (req: any, res: any) => {
             data: {
               paymentStatus: PaymentStatus.COMPLETED,
               status: OrderStatus.PURCHASED,
+              invoice: charge.receipt_url || undefined,
             },
           });
 
@@ -502,23 +541,45 @@ const handleWebHook = catchAsync(async (req: any, res: any) => {
     case 'customer.subscription.created': {
       const subscription = event.data.object as Stripe.Subscription;
 
-      const userId = subscription.metadata?.userId;
-      const subscriptionOfferId = subscription.metadata?.subscriptionOfferId;
-      const pricingRuleId = subscription.metadata?.pricingRuleId;
+      console.log('🔔 customer.subscription.created event received');
+      console.log('Subscription ID:', subscription.id);
+      console.log('Customer ID:', subscription.customer);
+      console.log('Status:', subscription.status);
+      console.log('Metadata:', JSON.stringify(subscription.metadata));
 
-      if (!userId || !subscriptionOfferId) {
-        console.log('Missing metadata in subscription');
-        break;
-      }
+      // const userId = subscription.metadata?.userId;
+      // const subscriptionOfferId = subscription.metadata?.subscriptionOfferId;
+      // const pricingRuleId = subscription.metadata?.pricingRuleId;
 
+      // Check if this is a USER subscription (has metadata) or PRODUCT subscription (handled elsewhere)
+     // find user using the customer ID from subscription metadata
       const user = await prisma.user.findFirst({
-        where: { id: userId },
+        where: { stripeCustomerId: subscription.customer as string },
       });
-
       if (!user) {
-        console.log('User not found for subscription creation');
+        console.log('⚠️ No user found for customer ID:', subscription.customer);
         break;
       }
+      const userId = user?.id;
+
+      //find order using userId and stripeSubscriptionId
+      const order = await prisma.order.findFirst({
+        where: {
+          userId,
+          stripeSubscriptionId: subscription.id,
+        },
+      });
+      if (!order) {
+        console.log('⚠️ No order found for user ID and subscription ID:', userId, subscription.id);
+        break;
+      }
+      
+
+      console.log('✅ Valid metadata found - proceeding with user subscription creation');
+
+    
+
+      console.log('✅ User found:', user.email);
 
       // Check subscription status before creating in DB
       if (
@@ -526,15 +587,21 @@ const handleWebHook = catchAsync(async (req: any, res: any) => {
         subscription.status === 'incomplete_expired' ||
         subscription.status === 'past_due'
       ) {
-        console.log('Subscription payment not completed, skipping DB creation');
+        console.log('⚠️ Subscription payment not completed. Status:', subscription.status);
+        console.log('🛑 Skipping DB creation until payment completes');
         break;
       }
+
+      console.log('✅ Subscription status is valid:', subscription.status);
 
       const subscriptionWithPeriod =
         subscription as unknown as Stripe.Subscription & {
           current_period_start: number;
           current_period_end: number;
         };
+
+      console.log('Period Start:', new Date(subscriptionWithPeriod.current_period_start * 1000));
+      console.log('Period End:', new Date(subscriptionWithPeriod.current_period_end * 1000));
 
       try {
         const userSubscription =
@@ -545,6 +612,8 @@ const handleWebHook = catchAsync(async (req: any, res: any) => {
             subscriptionWithPeriod.current_period_start,
             subscriptionWithPeriod.current_period_end,
           );
+
+        console.log('✅ User subscription created in database:', userSubscription.id);
 
         // Record pricing rule usage if applied
         if (pricingRuleId && userSubscription) {
@@ -563,40 +632,34 @@ const handleWebHook = catchAsync(async (req: any, res: any) => {
             });
           });
 
-          console.log('✅ Pricing rule usage recorded');
+          console.log('✅ Pricing rule usage recorded for rule:', pricingRuleId);
         }
 
-        console.log('✅ Subscription created in database from webhook');
+        console.log('✅ User subscription fully processed from webhook');
       } catch (error) {
-        console.error('Error creating subscription from webhook:', error);
+        console.error('❌ Error creating subscription from webhook:', error);
       }
+
       // Send invoice email if active
       if (subscription.status === 'active' && subscription.latest_invoice) {
         try {
-          console.log(
-            'Attempting to send invoice to customer:',
-            subscription.latest_invoice,
-          );
+          console.log('📧 Attempting to send invoice email...');
+          console.log('Latest invoice:', subscription.latest_invoice);
 
-          const invoiceId =
-            typeof subscription.latest_invoice === 'string'
-              ? subscription.latest_invoice
-              : subscription.latest_invoice?.id;
-
-          console.log('Invoice ID to be sent:', invoiceId);
+          const invoiceId = subscription.latest_invoice;
 
           if (typeof invoiceId === 'string') {
             await stripe.invoices.sendInvoice(invoiceId);
-            console.log('Invoice sent to customer:', invoiceId);
+            console.log('✅ Invoice email sent successfully. Invoice ID:', invoiceId);
           } else {
-            console.log('Invoice ID is undefined, cannot send invoice.');
+            console.log('⚠️ Invoice ID is not a string, cannot send invoice.');
           }
         } catch (error) {
-          console.log(
-            'Invoice sending failed, but subscription is active:',
-            error,
-          );
+          console.error('⚠️ Invoice email sending failed:', error);
+          console.log('Subscription is still active despite email failure');
         }
+      } else {
+        console.log('ℹ️ No invoice email sent - Status:', subscription.status, 'Has invoice:', !!subscription.latest_invoice);
       }
 
       break;
@@ -747,6 +810,19 @@ const handleWebHook = catchAsync(async (req: any, res: any) => {
           },
           data: { status: PaymentStatus.REFUNDED },
         });
+
+        await prisma.order.updateMany({
+          where: {
+            stripeSubscriptionId: subscription.id,
+          },
+          data: {
+            subscriptionStatus: SubscriptionStatus.CANCELLED,
+            nextBillingDate: null,
+            currentState: OrderStatus.CANCELLED,
+            status: OrderStatus.CANCELLED,
+            paymentStatus: PaymentStatus.REFUNDED,
+          },
+        });
       }
       break;
     }
@@ -853,8 +929,17 @@ const handleWebHook = catchAsync(async (req: any, res: any) => {
               where: { id: existingPayment.id },
               data: {
                 paymentIntentId: paymentIntentId,
+                invoice: invoice.hosted_invoice_url || undefined,
+
               },
             });
+            await prisma.order.updateMany({
+              where: { stripeSubscriptionId: subscriptionId },
+              data: {
+                invoice: invoice.hosted_invoice_url || undefined,
+              },
+            });
+
             console.log('Updated initial payment with paymentIntentId');
           }
 
@@ -1045,7 +1130,7 @@ const handleWebHook = catchAsync(async (req: any, res: any) => {
             where: { id: productOrder.id },
             data: {
               nextBillingDate,
-              subscriptionStatus: 'ACTIVE',
+              subscriptionStatus: SubscriptionStatus.ACTIVE,
             },
           });
 
@@ -1073,12 +1158,96 @@ const handleWebHook = catchAsync(async (req: any, res: any) => {
             });
             console.log('✅ Created payment record for recurring product subscription');
           }
+
+          // Send email notification for product subscription payment
+          if (productOrder.user?.email) {
+            try {
+              console.log('Sending product subscription payment email to:', productOrder.user.email);
+
+              await emailSender(
+                `Payment Successful - ${productOrder.product?.productName || 'Product Subscription'}`,
+                productOrder.user.email,
+                `<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            line-height: 1.6;
+            color: #333333;
+            margin: 10px;
+            padding: 10px;
+            background-color: #f9f9f9;
+        }
+        .container {
+            max-width: 600px;
+            margin: 0 auto;
+            background-color: #ffffff;
+            border-radius: 8px;
+            overflow: hidden;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+        }
+        .header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            padding: 30px 20px;
+            text-align: center;
+            color: white;
+        }
+        .content {
+            padding: 30px;
+        }
+        .invoice-section {
+            background-color: #f7fafc;
+            padding: 20px;
+            border-radius: 6px;
+            border-left: 4px solid #667eea;
+            margin: 25px 0;
+        }
+        .invoice-link {
+            display: inline-block;
+            background-color: #667eea;
+            color: white;
+            padding: 12px 24px;
+            text-decoration: none;
+            border-radius: 5px;
+            font-weight: bold;
+            margin-top: 10px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>Payment Successful! 💳</h1>
+        </div>
+        <div class="content">
+            <p><strong>Dear ${productOrder.user.fullName},</strong></p>
+            <p>Your recurring payment for <strong>${productOrder.product?.productName || 'Product Subscription'}</strong> has been processed successfully.</p>
+            <div class="invoice-section">
+                <p><strong>Payment Amount:</strong> $${paidInvoice.amount_paid ? (paidInvoice.amount_paid / 100).toFixed(2) : '0.00'}</p>
+                <p><strong>Next Billing Date:</strong> ${productOrder.nextBillingDate ? new Date(productOrder.nextBillingDate).toLocaleDateString() : 'N/A'}</p>
+                ${paidInvoice.hosted_invoice_url ? `<a href="${paidInvoice.hosted_invoice_url}" class="invoice-link">View Invoice</a>` : ''}
+            </div>
+            <p>Thank you for your continued subscription!</p>
+            <p><strong>Best regards,<br/>The VitaKinetic Team</strong></p>
+        </div>
+    </div>
+</body>
+</html>`,
+              );
+              console.log('✅ Product subscription payment email sent successfully');
+            } catch (emailError) {
+              console.error('❌ Failed to send product subscription email:', emailError);
+            }
+          }
         } else {
           // Handle user subscription payment (existing logic)
           const userId = paidInvoice.lines.data[0]?.metadata?.userId;
 
           if (!userId) {
-            console.log('Missing metadata in subscription');
+            console.log('Missing userId in subscription metadata');
             break;
           }
           
@@ -1087,19 +1256,19 @@ const handleWebHook = catchAsync(async (req: any, res: any) => {
           });
           
           if (!user) {
-            console.log('User not found for subscription creation');
+            console.log('User not found for subscription payment');
             break;
           }
 
-      // Fallback email
+      // Send subscription activation/renewal email
       if (user.email) {
         try {
-          console.log('Attempting fallback email to user:', user.email);
+          console.log('Sending user subscription payment email to:', user.email);
 
-          const latestInvoice = paidInvoice.hosted_invoice_url as String;
+          const latestInvoice = paidInvoice.hosted_invoice_url;
 
           await emailSender(
-            'Your Subscription is Active',
+            'Your Subscription Payment Successful',
             user.email,
             `<!DOCTYPE html>
 <html>
@@ -1248,10 +1417,13 @@ const handleWebHook = catchAsync(async (req: any, res: any) => {
 </body>
                 </html>`,
           );
-          console.log('Fallback email sent to user:', user.email);
+          console.log('✅ User subscription payment email sent successfully to:', user.email);
         } catch (emailError) {
-          console.log('Fallback email sending failed:', emailError);
+          console.error('❌ CRITICAL: Failed to send user subscription email:', emailError);
+          // Log to external monitoring service if available
         }
+      } else {
+        console.error('❌ CRITICAL: User has no email address, cannot send subscription notification');
       }
         }
       } catch (error) {

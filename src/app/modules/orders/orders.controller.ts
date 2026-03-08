@@ -2,6 +2,7 @@ import httpStatus from 'http-status';
 import sendResponse from '../../utils/sendResponse';
 import catchAsync from '../../utils/catchAsync';
 import { ordersService } from './orders.service';
+import { ISearchAndFilterOptions } from '../../interface/pagination.type';
 
 const createOrders = catchAsync(async (req, res) => {
   const user = req.user as any;
@@ -16,12 +17,15 @@ const createOrders = catchAsync(async (req, res) => {
 
 const getOrdersList = catchAsync(async (req, res) => {
   const user = req.user as any;
-  const result = await ordersService.getOrdersListFromDb(user.id, user.role);
+  const result = await ordersService.getOrdersListFromDb(user.id, user.role,
+    req.query as ISearchAndFilterOptions
+  );
   sendResponse(res, {
     statusCode: httpStatus.OK,
     success: true,
     message: 'Orders list retrieved successfully',
-    data: result,
+    data: result.data,
+    meta: result.meta,
   });
 });
 

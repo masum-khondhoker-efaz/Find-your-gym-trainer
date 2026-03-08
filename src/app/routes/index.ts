@@ -35,6 +35,8 @@ import { subscriptionPricingRuleRoutes } from '../modules/subscriptionPricingRul
 import { contactUsInfoRoutes } from '../modules/contactUsInfo/contactUsInfo.routes';
 import { newsletterSubscriberRoutes } from '../modules/newsletterSubscriber/newsletterSubscriber.routes';
 import { supportRoutes } from '../modules/support/support.routes';
+import { path } from 'pdfkit';
+import { ordersRoutes } from '../modules/orders/orders.routes';
 // import { PaymentRoutes } from '../modules/payment/payment.routes';
 // import { orderRoutes } from '../modules/order/order.routes';
 
@@ -60,6 +62,10 @@ const moduleRoutes = [
   {
     path: '/products',
     route: productRoutes,
+  },
+  {
+    path: '/orders',
+    route: ordersRoutes,
   },
   {
     path: '/custom-pricing',

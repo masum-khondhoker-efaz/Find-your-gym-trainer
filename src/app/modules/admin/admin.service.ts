@@ -690,38 +690,43 @@ const getAllProductsFromDb = async (
       id: true,
       productName: true,
       description: true,
-      week: true,
-      agreement: true,
+      durationWeeks: true,
+      bulletPoints: true,
       totalPurchased: true,
+      status: true,
       views: true,
       price: true,
-      discount: true,
+      capacity: true,
       avgRating: true,
       ratingCount: true,
       productImage: true,
       productVideo: true,
-      pdf: true,
+      agreementPdf: true,
       isActive: true,
       createdAt: true,
       updatedAt: true,
       // userId: true,
       user: {
         select: {
-          trainers: {
-            select: {
-              userId: true,
-              specialtyId: true,
-              portfolio: true,
-              certifications: true,
-              experienceYears: true,
-              specialty: {
-                select: {
-                  id: true,
-                  specialtyName: true,
-                },
-              },
-            },
-          },
+          id: true,
+          fullName: true,
+          image: true,
+          email: true,
+          // trainers: {
+          //   select: {
+          //     userId: true,
+          //     specialtyId: true,
+          //     portfolio: true,
+          //     certifications: true,
+          //     experienceYears: true,
+          //     specialty: {
+          //       select: {
+          //         id: true,
+          //         specialtyName: true,
+          //       },
+          //     },
+          //   },
+          // },
         },
       },
     },
@@ -729,33 +734,38 @@ const getAllProductsFromDb = async (
 
   // Flatten the products to include trainer info at the top level
     const flattenedProducts = products.map(product => {
-      const trainer = product.user?.trainers?.[0];
+      // const trainer = product.user?.trainers?.[0];
       return {
         id: product.id,
         productName: product.productName,
+        productStatus: product.status,
         description: product.description,
-        week: product.week,
-        agreement: product.agreement,
+        durationWeeks: product.durationWeeks,
+        bulletPoints: product.bulletPoints,
         totalPurchased: product.totalPurchased,
         views: product.views,
         price: product.price,
-        discount: product.discount,
+        capacity: product.capacity,
         avgRating: product.avgRating,
         ratingCount: product.ratingCount,
         productImage: product.productImage,
         productVideo: product.productVideo,
-        pdf: product.pdf,
+        agreementPdf: product.agreementPdf,
         isActive: product.isActive,
         createdAt: product.createdAt,
         updatedAt: product.updatedAt,
-        // trainer: trainer ? {
-        //   userId: trainer.userId,
-        //   specialtyId: trainer.specialtyId,
-        //   portfolio: trainer.portfolio,
-        //   certifications: trainer.certifications,
-        //   experienceYears: trainer.experienceYears,
-        //   specialty: trainer.specialty,
-        // } : null,
+        trainer: // trainer ? 
+        {
+          trainerId: product.user.id,
+          trainerName: product.user.fullName,
+          trainerEmail: product.user.email,
+          trainerImage: product.user.image,
+          // specialtyId: trainer.specialtyId,
+          // portfolio: trainer.portfolio,
+          // certifications: trainer.certifications,
+          // experienceYears: trainer.experienceYears,
+          // specialty: trainer.specialty,
+        },
       };
     });
 

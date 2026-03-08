@@ -44,7 +44,6 @@ const createProductIntoDb = async (userId: string, data: any) => {
   return product;
 };
 
-
 const getProductListFromDb = async (
   // userId: string,
   options?: ISearchAndFilterOptions,
@@ -56,7 +55,7 @@ const getProductListFromDb = async (
 
   const whereClause: any = {
     isActive: true,
-    status: ProductStatus.ACTIVE
+    status: ProductStatus.ACTIVE,
   };
 
   // Search filter
@@ -130,9 +129,6 @@ const getProductListFromDb = async (
       },
     };
   }
-
-  
-
 
   const sortBy = options?.sortBy || 'createdAt';
   const sortOrder = options?.sortOrder || 'desc';
@@ -228,7 +224,7 @@ const getProductListFromDb = async (
   const flattenedResult = result.map(product => {
     // const trainer = product.user?.trainers?.[0];
     // const serviceTypes = trainer?.trainerServiceTypes?.map(tst => tst.serviceType) || [];
-    
+
     const { user, ...productWithoutUser } = product;
     const activeCustomPricing = customPricingMap.get(product.id);
 
@@ -318,12 +314,24 @@ const getAProductByPublicFromDb = async (productId: string) => {
             },
           },
         },
-      }
+      },
     },
   });
   if (!result) {
     throw new AppError(httpStatus.NOT_FOUND, 'product not found');
   }
+
+  // update product view count
+  await prisma.product.update({
+    where: {
+      id: productId,
+    },
+    data: {
+      views: {
+        increment: 1,
+      },
+    },
+  });
 
   // Get active custom pricing for this product
   const now = new Date();
@@ -355,7 +363,7 @@ const getAProductByPublicFromDb = async (productId: string) => {
     discountEndDate: activeCustomPricing?.endDate || null,
     customPricingLimit: activeCustomPricing?.limit || null,
   };
-}
+};
 
 const getMyProductsFromDb = async (
   userId: string,
@@ -395,7 +403,7 @@ const getMyProductsFromDb = async (
     };
   }
 
- // Price range filter
+  // Price range filter
   if (
     options?.priceMin !== undefined ||
     options?.priceMax !== undefined ||
@@ -409,8 +417,6 @@ const getMyProductsFromDb = async (
       whereClause.price.lte = Number(options.priceMax);
     }
   }
-
- 
 
   const sortBy = options?.sortBy || 'createdAt';
   const sortOrder = options?.sortOrder || 'desc';
@@ -484,7 +490,6 @@ const updateProductIntoDb = async (
 
   return updatedProduct;
 };
-
 
 const deleteProductItemFromDb = async (userId: string, productId: string) => {
   // Check if product exists

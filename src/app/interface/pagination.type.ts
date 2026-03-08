@@ -47,6 +47,7 @@ export interface ISearchAndFilterOptions extends IPaginationOptions {
   endDate?: string;
   subscriptionType?: string;
   duration?: string;
+  currentState?: string;
 
   // User-related filters
   userStatus?: string;

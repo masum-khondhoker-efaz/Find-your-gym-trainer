@@ -284,7 +284,7 @@ const createUserSubscriptionFromWebhook = async (
 
   const startDate = new Date(current_period_start * 1000);
   const endDate = new Date(current_period_end * 1000);
-  const latestInvoice = subscription.latest_invoice as any;
+  // const latestInvoice = subscription.latest_invoice as any;
 
   // Only database operations in transaction
   const result = await prisma.$transaction(
@@ -300,18 +300,18 @@ const createUserSubscriptionFromWebhook = async (
         },
       });
 
-      await tx.payment.create({
-        data: {
-          stripeSubscriptionId: subscription.id,
-          paymentAmount: subscriptionOffer.price,
-          amountProvider: user.stripeCustomerId!,
-          status: PaymentStatus.COMPLETED,
-          invoiceId: latestInvoice?.id,
-          user: {
-            connect: { id: userId },
-          },
-        },
-      });
+      // await tx.payment.create({
+      //   data: {
+      //     stripeSubscriptionId: subscription.id,
+      //     paymentAmount: subscriptionOffer.price,
+      //     amountProvider: user.stripeCustomerId!,
+      //     status: PaymentStatus.COMPLETED,
+      //     invoiceId: latestInvoice?.id,
+      //     user: {
+      //       connect: { id: userId },
+      //     },
+      //   },
+      // });
 
       await tx.user.update({
         where: { id: userId },
