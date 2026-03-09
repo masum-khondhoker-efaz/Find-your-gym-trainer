@@ -364,15 +364,16 @@ const getTrainerSubscriptionPlanFromDb = async (userId: string) => {
   if (!user) {
     throw new AppError(httpStatus.NOT_FOUND, 'User not found');
   }
+  const subscription = user.userSubscriptions[0];
   return {
     subscriptionPlan: user.subscriptionPlan,
     isSubscribed: user.isSubscribed,
-    subscriptionStart: user.userSubscriptions[0]?.startDate,
+    subscriptionStart: subscription?.startDate,
     subscriptionEnd: user.subscriptionEnd,
     stripeSubscriptionId: user.stripeSubscriptionId,
-    duration: user.userSubscriptions[0]?.subscriptionOffer.duration,
-    price: user.userSubscriptions[0]?.subscriptionOffer.price,
-    description: user.userSubscriptions[0]?.subscriptionOffer.description,
+    duration: subscription?.subscriptionOffer?.duration,
+    price: subscription?.subscriptionOffer?.price,
+    description: subscription?.subscriptionOffer?.description,
   };
 };
 

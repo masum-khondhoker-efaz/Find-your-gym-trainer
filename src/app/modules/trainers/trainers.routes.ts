@@ -16,7 +16,8 @@ router.get(
 
 router.get(
   '/find-trainers/:id',
-  /*auth(UserRoleEnum.MEMBER),*/ trainersController.getTrainersById,
+  /*auth(UserRoleEnum.MEMBER),*/ 
+  trainersController.getTrainersById,
 );
 
 export const trainersRoutes = router;

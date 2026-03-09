@@ -47,6 +47,20 @@ const createOrdersIntoDb = async (
       throw new AppError(httpStatus.BAD_REQUEST, 'Product is not available for purchase');
     }
 
+    //check the product is purchased by the user
+    const existingOrder = await tx.order.findFirst({
+      where: {
+        userId,
+        productId,
+        paymentStatus: PaymentStatus.COMPLETED,
+        status: OrderStatus.COMPLETED,
+      },
+    });
+
+    if (existingOrder) {
+      throw new AppError(httpStatus.BAD_REQUEST, 'You have already purchased this product');
+    }
+
     // Check capacity if applicable
     if (product.capacity && product.totalPurchased >= product.capacity) {
       throw new AppError(httpStatus.BAD_REQUEST, 'Product capacity reached');

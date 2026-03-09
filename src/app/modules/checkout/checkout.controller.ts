@@ -38,7 +38,9 @@ const getCheckoutById = catchAsync(async (req, res) => {
 
 const updateCheckout = catchAsync(async (req, res) => {
   const user = req.user as any;
-  const result = await checkoutService.updateCheckoutIntoDb(user.id, req.params.id, req.body);
+  const result = await checkoutService.updateCheckoutIntoDb(user.id, req.params.id, 
+    // req.body
+  );
   sendResponse(res, {
     statusCode: httpStatus.OK,
     success: true,

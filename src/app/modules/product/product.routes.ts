@@ -21,6 +21,11 @@ router.post(
 router.get('/', productController.getProductList);
 
 router.get(
+  '/products-by-trainer/:trainerId',
+  productController.getProductsByTrainer,
+);
+
+router.get(
   '/my-products',
   auth(UserRoleEnum.TRAINER),
   productController.getMyProducts,

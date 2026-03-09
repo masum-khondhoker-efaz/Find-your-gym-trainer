@@ -265,6 +265,8 @@ const getMyTrainerProfileFromDB = async (id: string) => {
       experienceYears: true,
       certifications: true,
       portfolio: true,
+      orgName: true,
+      credentialNo: true,
       trainerSpecialties: {
         select: {
           specialty: {
@@ -316,6 +318,8 @@ const getMyTrainerProfileFromDB = async (id: string) => {
       id: tst.serviceType.id,
       serviceName: tst.serviceType.serviceName,
     })),
+    organizationName: Profile.orgName,
+    credentialNumber: Profile.credentialNo,
     referrals: Profile.user.referrals,
   };
 };
@@ -398,6 +402,8 @@ const updateTrainerProfileIntoDB = async (
     trainerSpecialty?: string[];
     experienceYears?: number;
     trainerServiceType?: string[];
+    orgName?: string;
+    credentialNo?: string;
   },
   fileUrl: {
     certifications?: string[];
@@ -417,6 +423,12 @@ const updateTrainerProfileIntoDB = async (
   const updateData: any = {
     ...(payload.experienceYears && {
       experienceYears: payload.experienceYears,
+    }),
+    ...(payload.orgName && {
+      orgName: payload.orgName,
+    }),
+    ...(payload.credentialNo && {
+      credentialNo: payload.credentialNo,
     }),
     ...(fileUrl?.certifications && {
       certifications: fileUrl.certifications,

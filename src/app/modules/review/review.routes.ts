@@ -23,7 +23,7 @@ router.get(
 );
 
 router.get(
-  '/trainer/:trainerId',
+  '/trainers/:trainerId',
   reviewController.getTrainerReviewList,
 );
 
@@ -45,7 +45,7 @@ router.get(
 // ==================== TRAINER REPLIES ====================
 
 router.post(
-  '/:reviewId/reply',
+  '/reply/:reviewId',
   auth(UserRoleEnum.TRAINER),
   validateRequest(reviewValidation.createTrainerReplySchema),
   reviewController.createTrainerReply,

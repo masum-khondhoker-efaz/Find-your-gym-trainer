@@ -60,6 +60,20 @@ const getProductList = catchAsync(async (req, res) => {
   });
 });
 
+const getProductsByTrainer = catchAsync(async (req, res) => {
+  const result = await productService.getProductsByTrainerFromDb(
+    req.params.trainerId,
+    req.query as ISearchAndFilterOptions,
+  );
+  sendResponse(res, {
+    statusCode: httpStatus.OK,
+    success: true,
+    message: 'Products by trainer retrieved successfully',
+    data: result.data,
+    meta: result.meta,
+  });
+});
+
 const getProductById = catchAsync(async (req, res) => {
   const user = req.user as any;
   const result = await productService.getProductByIdFromDb(
@@ -181,6 +195,7 @@ const deleteProduct = catchAsync(async (req, res) => {
 export const productController = {
   createProduct,
   getProductList,
+  getProductsByTrainer,
   getMyProducts,
   getProductById,
   getProductByIdPublic,

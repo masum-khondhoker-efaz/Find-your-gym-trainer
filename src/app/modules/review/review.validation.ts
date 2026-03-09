@@ -4,10 +4,15 @@ const createProductReviewSchema = z.object({
   body: z.object({
     productId: z.string().min(1, 'Product ID is required'),
     rating: z
-      .number()
-      .int()
-      .min(1, 'Rating must be at least 1')
-      .max(5, 'Rating cannot exceed 5'),
+      .union([z.string(), z.number()])
+      .transform((val) => Number(val))
+      .pipe(
+        z
+          .number()
+          .int()
+          .min(1, 'Rating must be at least 1')
+          .max(5, 'Rating cannot exceed 5')
+      ),
     comment: z.string().min(1, 'Comment is required'),
   }),
 });
@@ -15,10 +20,15 @@ const createProductReviewSchema = z.object({
 const createSystemReviewSchema = z.object({
   body: z.object({
     rating: z
-      .number()
-      .int()
-      .min(1, 'Rating must be at least 1')
-      .max(5, 'Rating cannot exceed 5'),
+      .union([z.string(), z.number()])
+      .transform((val) => Number(val))
+      .pipe(
+        z
+          .number()
+          .int()
+          .min(1, 'Rating must be at least 1')
+          .max(5, 'Rating cannot exceed 5')
+      ),
     comment: z.string().min(1, 'Comment is required'),
   }),
 });

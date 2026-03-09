@@ -113,6 +113,8 @@ model Trainer {
   specialtyId     String?  @db.ObjectId
   portfolio       String[]
   certifications  String[]
+  orgName         String?
+  credentialNo    String?
   experienceYears Int
   totalReferrals  Int      @default(0)
   views           Int      @default(0)
@@ -608,7 +610,7 @@ model UserSubscription {
 
   // Relationships
   user                       User                        @relation(fields: [userId], references: [id])
-  subscriptionOffer          SubscriptionOffer           @relation(fields: [subscriptionOfferId], references: [id])
+  subscriptionOffer          SubscriptionOffer?          @relation(fields: [subscriptionOfferId], references: [id])
   product                    Product?                    @relation(fields: [productId], references: [id])
   subscriptionPricingUsages  SubscriptionPricingUsage[]
   subscriptionAdminOverrides SubscriptionAdminOverride[]

@@ -65,6 +65,16 @@ const updateTrainerProfileSchema = z.object({
         }),
       )
       .optional(),
+    orgName: z
+      .string({
+        required_error: 'Organization name is required!',
+      })
+      .optional(),
+    credentialNo: z
+      .string({
+        required_error: 'Credential number is required!',
+      })
+      .optional(),
   }),
 });
 

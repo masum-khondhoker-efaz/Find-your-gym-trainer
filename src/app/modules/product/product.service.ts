@@ -257,6 +257,25 @@ const getProductListFromDb = async (
   };
 };
 
+const getProductsByTrainerFromDb = async (
+  trainerId: string,
+  options: ISearchAndFilterOptions = {},
+) => {
+  // Normalize sortOrder to ensure it's 'asc' or 'desc'
+  const normalizedOptions = {
+    ...options,
+    sortBy: options.sortBy || 'createdAt',
+    sortOrder: (options.sortOrder?.toLowerCase() === 'asc' ? 'asc' : 'desc') as 'asc' | 'desc',
+    trainerId: trainerId,
+  };
+  // 2️⃣ Use the existing getProductListFromDb with trainerId filter
+  return await getProductListFromDb(normalizedOptions);
+}
+
+
+
+
+
 const getProductByIdFromDb = async (userId: string, productId: string) => {
   const result = await prisma.product.findUnique({
     where: {
@@ -561,6 +580,7 @@ const getAProductFromDb = async (userId: string, productId: string) => {
 export const productService = {
   createProductIntoDb,
   getProductListFromDb,
+  getProductsByTrainerFromDb,
   getMyProductsFromDb,
   getAProductByPublicFromDb,
   getProductByIdFromDb,

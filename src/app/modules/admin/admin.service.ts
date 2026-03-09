@@ -950,11 +950,11 @@ const getATrainerFromDb = async (userId: string, trainerId: string) => {
 const getAllOrdersFromDb = async (userId: string, adminId: string) => {
   const result = await prisma.order.findMany({
     include: {
-      items: {
-        include: {
-          product: { select: { id: true, productName: true, price: true } },
-        },
-      },
+      // items: {
+      //   include: {
+      //     product: { select: { id: true, productName: true, price: true } },
+      //   },
+      // },
       user: {
         select: { id: true, fullName: true, email: true },
       },

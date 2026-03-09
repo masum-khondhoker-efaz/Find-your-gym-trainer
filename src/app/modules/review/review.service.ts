@@ -126,8 +126,15 @@ const getProductReviewListFromDb = async (
   productId: string,
   options: ISearchAndFilterOptions = {},
 ) => {
+  // Normalize sortOrder to ensure it's 'asc' or 'desc'
+  const normalizedOptions = {
+    ...options,
+    sortBy: options.sortBy || 'createdAt',
+    sortOrder: (options.sortOrder?.toLowerCase() === 'asc' ? 'asc' : 'desc') as 'asc' | 'desc',
+  };
+
   // Pagination
-  const { page, limit, skip, sortBy, sortOrder } = calculatePagination(options);
+  const { page, limit, skip, sortBy, sortOrder } = calculatePagination(normalizedOptions);
 
   // Build search query (search in comment and user name)
   const searchQuery = options.searchTerm
@@ -186,51 +193,60 @@ const getProductReviewListFromDb = async (
     skip,
     take: limit,
     orderBy,
-    select: {
-      id: true,
-      userId: true,
-      rating: true,
-      comment: true,
-      createdAt: true,
-      user: {
-        select: {
-          fullName: true,
-          email: true,
-          image: true,
-        },
-      },
+    include: {
+      user: true,
       product: {
-        select: {
-          id: true,
-          productName: true,
+        include: {
           user: {
             select: {
-              id: true,
               fullName: true,
+              image: true,
             },
           },
         },
       },
       trainerReplies: {
-        select: {
-          id: true,
-          reply: true,
-          createdAt: true,
+        include: {
           trainer: {
-            select: {
-              user: {
-                select: {
-                  id: true,
-                  fullName: true,
-                  image: true,
-                },
-              },
+            include: {
+              user: true,
             },
           },
         },
       },
     },
   });
+  if (reviews.length === 0) {
+    // If no reviews found, still return pagination info with empty data
+    return formatPaginationResponse([], total, page, limit);
+  }
+
+  // Flatten the response
+  const flattenedReviews = reviews
+    .filter(review => review.product !== null)
+    .map(review => ({
+      id: review.id,
+      userId: review.userId,
+      rating: review.rating,
+      comment: review.comment,
+      createdAt: review.createdAt,
+      userName: review.user.fullName,
+      userEmail: review.user.email,
+      userImage: review.user.image,
+      productId: review.product!.id,
+      productName: review.product!.productName,
+      productImage: review.product!.productImage,
+      trainerId: review.product!.userId,
+      trainerName: review.product!.user.fullName,
+      repliesCount: review.trainerReplies.length,
+      reply: review.trainerReplies[0] ? {
+        id: review.trainerReplies[0].id,
+        reply: review.trainerReplies[0].reply,
+        createdAt: review.trainerReplies[0].createdAt,
+        trainerName: review.trainerReplies[0].trainer.user.fullName,
+        trainerImage: review.trainerReplies[0].trainer.user.image,
+      } : null,
+    }));
 
   // Calculate stats for all reviews of this product
   const allProductReviews = await prisma.review.findMany({
@@ -247,7 +263,7 @@ const getProductReviewListFromDb = async (
 
   // Return paginated response with stats
   const paginationResult = formatPaginationResponse(
-    reviews,
+    flattenedReviews,
     total,
     page,
     limit,
@@ -273,8 +289,15 @@ const getTrainerReviewListFromDb = async (
   });
   const trainerProductIds = trainerProducts.map(p => p.id);
 
+  // Normalize sortOrder to ensure it's 'asc' or 'desc'
+  const normalizedOptions = {
+    ...options,
+    sortBy: options.sortBy || 'createdAt',
+    sortOrder: (options.sortOrder?.toLowerCase() === 'asc' ? 'asc' : 'desc') as 'asc' | 'desc',
+  };
+
   // Pagination
-  const { page, limit, skip, sortBy, sortOrder } = calculatePagination(options);
+  const { page, limit, skip, sortBy, sortOrder } = calculatePagination(normalizedOptions);
   
   // Build search query (search in comment and user name)
   const searchQuery = options.searchTerm
@@ -330,52 +353,61 @@ const getTrainerReviewListFromDb = async (
     skip,
     take: limit,
     orderBy,
-    select: {
-      id: true,
-      userId: true,
-      rating: true,
-      comment: true,
-      createdAt: true,
-      user: {
-        select: {
-          fullName: true,
-          email: true,
-          image: true,
-        },
-      },
+    include: {
+      user: true,
       product: {
-        select: {
-          id: true,
-          productName: true,
+        include: {
           user: {
             select: {
-              id: true, 
               fullName: true,
+              image: true,
             },
           },
         },
       },
       trainerReplies: {
-        select: {
-          id: true,
-          reply: true,
-          createdAt: true,
+        include: {
           trainer: {
-            select: {
-              user: {
-                select: {
-                  id: true,
-                  fullName: true,
-                },
-              },
+            include: {
+              user: true,
             },
           },
         },
       },
     },
   });
-  
 
+  if (reviews.length === 0) {
+    // If no reviews found, still return pagination info with empty data
+    return formatPaginationResponse([], total, page, limit);
+  }
+
+  // Flatten the response
+  const flattenedReviews = reviews
+    .filter(review => review.product !== null)
+    .map(review => ({
+      id: review.id,
+      userId: review.userId,
+      rating: review.rating,
+      comment: review.comment,
+      createdAt: review.createdAt,
+      userName: review.user.fullName,
+      userEmail: review.user.email,
+      userImage: review.user.image,
+      productId: review.product!.id,
+      productName: review.product!.productName,
+      productImage: review.product!.productImage,
+      trainerId: review.product!.userId,
+      trainerName: review.product!.user.fullName,
+      repliesCount: review.trainerReplies.length,
+      reply: review.trainerReplies[0] ? {
+        id: review.trainerReplies[0].id,
+        reply: review.trainerReplies[0].reply,
+        createdAt: review.trainerReplies[0].createdAt,
+        trainerName: review.trainerReplies[0].trainer.user.fullName,
+        trainerImage: review.trainerReplies[0].trainer.user.image,
+      } : null,
+    }));
 
   // Calculate stats for all reviews of this trainer
   const allTrainerReviews = await prisma.review.findMany({
@@ -395,7 +427,7 @@ const getTrainerReviewListFromDb = async (
 
   // Return paginated response with stats
   const paginationResult = formatPaginationResponse(
-    reviews,
+    flattenedReviews,
     total,
     page,
     limit,
@@ -455,8 +487,15 @@ const createSystemReviewIntoDb = async (userId: string, data: any) => {
 const getSystemReviewListFromDb = async (
   options: ISearchAndFilterOptions = {},
 ) => {
+  // Normalize sortOrder to ensure it's 'asc' or 'desc'
+  const normalizedOptions = {
+    ...options,
+    sortBy: options.sortBy || 'createdAt',
+    sortOrder: (options.sortOrder?.toLowerCase() === 'asc' ? 'asc' : 'desc') as 'asc' | 'desc',
+  };
+
   // Pagination
-  const { page, limit, skip, sortBy, sortOrder } = calculatePagination(options);
+  const { page, limit, skip, sortBy, sortOrder } = calculatePagination(normalizedOptions);
 
   // Build search query
   const searchQuery = options.searchTerm

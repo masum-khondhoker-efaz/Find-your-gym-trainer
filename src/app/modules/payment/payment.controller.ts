@@ -10,6 +10,7 @@ import {
   PaymentStatus,
   SubscriptionPlanStatus,
   SubscriptionStatus,
+  UserRoleEnum,
 } from '@prisma/client';
 import emailSender from '../../utils/emailSender';
 import AppError from '../../errors/AppError';
@@ -326,17 +327,36 @@ const handleWebHook = catchAsync(async (req: any, res: any) => {
                 },
               });
 
-              // Create payment record
-              await prisma.payment.create({
+              // Don't create payment here - let invoice.payment_succeeded handle it with full invoice details
+              console.log('✅ Order updated, payment will be created when invoice is paid');
+
+              // Calculate subscription end date based on invoice frequency
+              const currentDate = new Date();
+              let endDate = new Date(currentDate);
+
+              switch (order.invoiceFrequency) {
+                case 'WEEKLY':
+                  endDate.setDate(currentDate.getDate() + 7);
+                  break;
+                case 'MONTHLY':
+                  endDate.setMonth(currentDate.getMonth() + 1);
+                  break;
+                case 'ANNUALLY':
+                  endDate.setFullYear(currentDate.getFullYear() + 1);
+                  break;
+                default:
+                  endDate.setMonth(currentDate.getMonth() + 1); // Default to monthly
+              }
+
+              // Create UserSubscription record for tracking
+              await prisma.userSubscription.create({
                 data: {
                   userId,
-                  paymentIntentId: subscriptionId,
-                  paymentAmount: session.amount_total
-                    ? session.amount_total / 100
-                    : 0,
-                  amountProvider: customerId,
-                  status: PaymentStatus.COMPLETED,
-                  // invoice: session.url,
+                  productId,
+                  stripeSubscriptionId: subscriptionId,
+                  startDate: currentDate,
+                  endDate: endDate,
+                  paymentStatus: PaymentStatus.COMPLETED,
                 },
               });
 
@@ -345,12 +365,18 @@ const handleWebHook = catchAsync(async (req: any, res: any) => {
                 where: { id: productId },
                 data: {
                   totalPurchased: { increment: 1 },
-                  totalRevenue: { increment: session.amount_total ? session.amount_total / 100 : 0 },
+                  totalRevenue: {
+                    increment: session.amount_total
+                      ? session.amount_total / 100
+                      : 0,
+                  },
                   activeClients: { increment: 1 },
                 },
               });
 
-              console.log('✅ Subscription order created successfully');
+              console.log(
+                '✅ Subscription order and tracking created successfully',
+              );
             } else {
               console.log('⚠️ No pending order found for this subscription');
             }
@@ -371,7 +397,6 @@ const handleWebHook = catchAsync(async (req: any, res: any) => {
     //     }
     //   break;
     // }
-        
 
     case 'charge.updated': {
       const charge = event.data.object as Stripe.Charge;
@@ -398,15 +423,15 @@ const handleWebHook = catchAsync(async (req: any, res: any) => {
         });
 
         // update product
-          if (paymentRecord.productId) {
-            await prisma.product.update({
-              where: { id: paymentRecord.productId },
-              data: {
-                totalRevenue: { increment: charge.amount / 100 },
-                activeClients: { increment: 1 },
-              },
-            });
-          }
+        if (paymentRecord.productId) {
+          await prisma.product.update({
+            where: { id: paymentRecord.productId },
+            data: {
+              totalRevenue: { increment: charge.amount / 100 },
+              activeClients: { increment: 1 },
+            },
+          });
+        }
 
         // Check if this charge is for an ORDER (product purchase)
         const orderId = paymentRecord.orderId;
@@ -420,7 +445,7 @@ const handleWebHook = catchAsync(async (req: any, res: any) => {
             where: { id: orderId },
             data: {
               paymentStatus: PaymentStatus.COMPLETED,
-              status: OrderStatus.PURCHASED,
+              status: OrderStatus.COMPLETED,
               invoice: charge.receipt_url || undefined,
             },
           });
@@ -435,7 +460,7 @@ const handleWebHook = catchAsync(async (req: any, res: any) => {
     <div style="font-family: Arial, sans-serif; color: #333; line-height: 1.6; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #e0e0e0; border-radius: 10px;">
       <table width="100%" style="border-collapse: collapse;">
         <tr>
-          <td style="background-color: #F56100; padding: 20px; text-align: center; color: #000000; border-radius: 10px 10px 0 0;">
+          <td style="background-color: #8FAF9A; padding: 20px; text-align: center; color: #000000; border-radius: 10px 10px 0 0;">
             <h2 style="margin: 0; font-size: 24px;">Order Confirmed! 🎉</h2>
           </td>
         </tr>
@@ -453,7 +478,7 @@ const handleWebHook = catchAsync(async (req: any, res: any) => {
             <p style="font-size: 16px;">You can view your payment receipt by clicking the button below:</p>
             
             <div style="text-align: center; margin: 30px 0;">
-              <a href="${charge.receipt_url}" target="_blank" style="background-color: #F56100; color: #000000; padding: 12px 30px; border-radius: 6px; text-decoration: none; display: inline-block; font-weight: bold;">View Receipt</a>
+              <a href="${charge.receipt_url}" target="_blank" style="background-color: #8FAF9A; color: #000000; padding: 12px 30px; border-radius: 6px; text-decoration: none; display: inline-block; font-weight: bold;">View Receipt</a>
             </div>
 
             <p style="font-size: 14px; color: #555; border-top: 1px solid #e0e0e0; padding-top: 15px; margin-top: 20px;">
@@ -547,52 +572,77 @@ const handleWebHook = catchAsync(async (req: any, res: any) => {
       console.log('Status:', subscription.status);
       console.log('Metadata:', JSON.stringify(subscription.metadata));
 
-      // const userId = subscription.metadata?.userId;
-      // const subscriptionOfferId = subscription.metadata?.subscriptionOfferId;
-      // const pricingRuleId = subscription.metadata?.pricingRuleId;
-
-      // Check if this is a USER subscription (has metadata) or PRODUCT subscription (handled elsewhere)
-     // find user using the customer ID from subscription metadata
+      // Find user using the customer ID from subscription
       const user = await prisma.user.findFirst({
         where: { stripeCustomerId: subscription.customer as string },
       });
+
       if (!user) {
         console.log('⚠️ No user found for customer ID:', subscription.customer);
         break;
       }
-      const userId = user?.id;
 
-      //find order using userId and stripeSubscriptionId
-      const order = await prisma.order.findFirst({
-        where: {
-          userId,
-          stripeSubscriptionId: subscription.id,
-        },
-      });
-      if (!order) {
-        console.log('⚠️ No order found for user ID and subscription ID:', userId, subscription.id);
-        break;
-      }
-      
+      console.log('✅ User found:', user.email, 'User ID:', user.id);
 
-      console.log('✅ Valid metadata found - proceeding with user subscription creation');
-
-    
-
-      console.log('✅ User found:', user.email);
-
-      // Check subscription status before creating in DB
+      // Check subscription status before processing
       if (
         subscription.status === 'incomplete' ||
         subscription.status === 'incomplete_expired' ||
         subscription.status === 'past_due'
       ) {
-        console.log('⚠️ Subscription payment not completed. Status:', subscription.status);
-        console.log('🛑 Skipping DB creation until payment completes');
+        console.log(
+          '⚠️ Subscription payment not completed. Status:',
+          subscription.status,
+        );
+        console.log('🛑 Skipping processing until payment completes');
         break;
       }
 
       console.log('✅ Subscription status is valid:', subscription.status);
+
+      // ============================================================
+      // DETERMINE SUBSCRIPTION TYPE: Product vs Platform Subscription
+      // ============================================================
+
+      // Check if this is a PRODUCT subscription (already handled in checkout.session.completed)
+      const order = await prisma.order.findFirst({
+        where: {
+          userId: user.id,
+          stripeSubscriptionId: subscription.id,
+        },
+      });
+
+      if (order) {
+        console.log('✅ This is a PRODUCT SUBSCRIPTION');
+        console.log('Order ID:', order.id, 'Product ID:', order.productId);
+        console.log(
+          '✅ Order already created in checkout.session.completed - no further action needed',
+        );
+        break;
+      }
+
+      console.log(
+        'ℹ️ No order found - checking if this is a PLATFORM SUBSCRIPTION...',
+      );
+
+      // This is a PLATFORM subscription - requires subscriptionOfferId metadata
+      const subscriptionOfferId = subscription.metadata?.subscriptionOfferId;
+      const pricingRuleId = subscription.metadata?.pricingRuleId;
+
+      if (!subscriptionOfferId) {
+        console.log('❌ Missing subscriptionOfferId in metadata');
+        console.log('This is required for platform subscriptions');
+        console.log(
+          'Metadata received:',
+          JSON.stringify(subscription.metadata),
+        );
+        break;
+      }
+
+      console.log(
+        '✅ Valid PLATFORM SUBSCRIPTION - subscriptionOfferId:',
+        subscriptionOfferId,
+      );
 
       const subscriptionWithPeriod =
         subscription as unknown as Stripe.Subscription & {
@@ -600,20 +650,29 @@ const handleWebHook = catchAsync(async (req: any, res: any) => {
           current_period_end: number;
         };
 
-      console.log('Period Start:', new Date(subscriptionWithPeriod.current_period_start * 1000));
-      console.log('Period End:', new Date(subscriptionWithPeriod.current_period_end * 1000));
+      console.log(
+        'Period Start:',
+        new Date(subscriptionWithPeriod.current_period_start * 1000),
+      );
+      console.log(
+        'Period End:',
+        new Date(subscriptionWithPeriod.current_period_end * 1000),
+      );
 
       try {
         const userSubscription =
           await userSubscriptionService.createUserSubscriptionFromWebhook(
-            userId,
+            user.id,
             subscriptionOfferId,
             subscription.id,
             subscriptionWithPeriod.current_period_start,
             subscriptionWithPeriod.current_period_end,
           );
 
-        console.log('✅ User subscription created in database:', userSubscription.id);
+        console.log(
+          '✅ Platform subscription created in database:',
+          userSubscription.id,
+        );
 
         // Record pricing rule usage if applied
         if (pricingRuleId && userSubscription) {
@@ -621,7 +680,7 @@ const handleWebHook = catchAsync(async (req: any, res: any) => {
             await tx.subscriptionPricingUsage.create({
               data: {
                 pricingRuleId: pricingRuleId,
-                userId: userId,
+                userId: user.id,
                 subscriptionId: userSubscription.id,
               },
             });
@@ -632,12 +691,18 @@ const handleWebHook = catchAsync(async (req: any, res: any) => {
             });
           });
 
-          console.log('✅ Pricing rule usage recorded for rule:', pricingRuleId);
+          console.log(
+            '✅ Pricing rule usage recorded for rule:',
+            pricingRuleId,
+          );
         }
 
-        console.log('✅ User subscription fully processed from webhook');
+        console.log('✅ Platform subscription fully processed from webhook');
       } catch (error) {
-        console.error('❌ Error creating subscription from webhook:', error);
+        console.error(
+          '❌ Error creating platform subscription from webhook:',
+          error,
+        );
       }
 
       // Send invoice email if active
@@ -650,7 +715,10 @@ const handleWebHook = catchAsync(async (req: any, res: any) => {
 
           if (typeof invoiceId === 'string') {
             await stripe.invoices.sendInvoice(invoiceId);
-            console.log('✅ Invoice email sent successfully. Invoice ID:', invoiceId);
+            console.log(
+              '✅ Invoice email sent successfully. Invoice ID:',
+              invoiceId,
+            );
           } else {
             console.log('⚠️ Invoice ID is not a string, cannot send invoice.');
           }
@@ -659,7 +727,12 @@ const handleWebHook = catchAsync(async (req: any, res: any) => {
           console.log('Subscription is still active despite email failure');
         }
       } else {
-        console.log('ℹ️ No invoice email sent - Status:', subscription.status, 'Has invoice:', !!subscription.latest_invoice);
+        console.log(
+          'ℹ️ No invoice email sent - Status:',
+          subscription.status,
+          'Has invoice:',
+          !!subscription.latest_invoice,
+        );
       }
 
       break;
@@ -774,26 +847,28 @@ const handleWebHook = catchAsync(async (req: any, res: any) => {
         where: { stripeSubscriptionId: subscription.id },
       });
 
-      if (paymentToUpdate?.paymentIntentId) {
-        try {
-          const refund = await stripe.refunds.create({
-            payment_intent: paymentToUpdate.paymentIntentId,
-          });
-          console.log('Refund created:', refund.id);
-        } catch (error) {
-          console.error('Refund creation failed:', error);
-        }
-      }
+      // if (paymentToUpdate?.paymentIntentId) {
+      //   try {
+      //     const refund = await stripe.refunds.create({
+      //       payment_intent: paymentToUpdate.paymentIntentId,
+      //     });
+      //     console.log('Refund created:', refund.id);
+      //   } catch (error) {
+      //     console.error('Refund creation failed:', error);
+      //   }
+      // }
 
       if (user) {
-        await prisma.user.update({
-          where: { id: user.id },
-          data: {
-            isSubscribed: false,
-            subscriptionEnd: new Date(),
-            subscriptionPlan: SubscriptionPlanStatus.FREE,
-          },
-        });
+        if (user?.role === UserRoleEnum.TRAINER) {
+          await prisma.user.update({
+            where: { id: user.id },
+            data: {
+              isSubscribed: false,
+              subscriptionEnd: new Date(),
+              subscriptionPlan: SubscriptionPlanStatus.FREE,
+            },
+          });
+        }
 
         await prisma.userSubscription.updateMany({
           where: {
@@ -823,6 +898,25 @@ const handleWebHook = catchAsync(async (req: any, res: any) => {
             paymentStatus: PaymentStatus.REFUNDED,
           },
         });
+
+        await prisma.product.updateMany({
+          where: {
+            orders: {
+              some: {
+                stripeSubscriptionId: subscription.id,
+              },
+            },
+          },
+          data: {
+            totalRevenue: {
+              decrement: subscription.items.data[0].price.unit_amount
+                ? subscription.items.data[0].price.unit_amount / 100
+                : 0,
+            },
+            activeClients: { decrement: 1 },
+            totalPurchased: { decrement: 1 },
+          },
+        });
       }
       break;
     }
@@ -847,6 +941,17 @@ const handleWebHook = catchAsync(async (req: any, res: any) => {
         if (billingReason === 'subscription_cycle') {
           console.log('Auto-renewal payment detected');
 
+          // Check if this is a product subscription (has Order)
+          const productOrder = await prisma.order.findFirst({
+            where: { stripeSubscriptionId: subscriptionId },
+          });
+
+          if (productOrder) {
+            console.log('Product subscription renewal - will be handled by invoice.payment_succeeded');
+            break;
+          }
+
+          // Handle platform subscription renewal only
           const subscription =
             await stripe.subscriptions.retrieve(subscriptionId);
 
@@ -859,7 +964,7 @@ const handleWebHook = catchAsync(async (req: any, res: any) => {
           }
 
           const newEndDate = new Date(currentPeriodEnd * 1000);
-          console.log('Updating subscription end date to:', newEndDate);
+          console.log('Updating platform subscription end date to:', newEndDate);
 
           await prisma.userSubscription.updateMany({
             where: { stripeSubscriptionId: subscriptionId },
@@ -909,10 +1014,10 @@ const handleWebHook = catchAsync(async (req: any, res: any) => {
                 },
               },
             });
-            console.log('Created renewal payment record');
+            console.log('Created platform subscription renewal payment record');
           }
 
-          console.log('Auto-renewal successfully processed');
+          console.log('Platform subscription auto-renewal successfully processed');
         } else if (billingReason === 'subscription_create') {
           console.log('Initial subscription payment detected');
 
@@ -930,7 +1035,6 @@ const handleWebHook = catchAsync(async (req: any, res: any) => {
               data: {
                 paymentIntentId: paymentIntentId,
                 invoice: invoice.hosted_invoice_url || undefined,
-
               },
             });
             await prisma.order.updateMany({
@@ -955,6 +1059,17 @@ const handleWebHook = catchAsync(async (req: any, res: any) => {
         } else if (billingReason === 'subscription_update') {
           console.log('Subscription update payment detected');
 
+          // Check if this is a product subscription (has Order)
+          const productOrder = await prisma.order.findFirst({
+            where: { stripeSubscriptionId: subscriptionId },
+          });
+
+          if (productOrder) {
+            console.log('Product subscription update - will be handled by invoice.payment_succeeded');
+            break;
+          }
+
+          // Handle platform subscription update only
           const subscription =
             await stripe.subscriptions.retrieve(subscriptionId);
           const currentPeriodEnd =
@@ -1010,11 +1125,22 @@ const handleWebHook = catchAsync(async (req: any, res: any) => {
                 },
               },
             });
-            console.log('Created update payment record');
+            console.log('Created platform subscription update payment record');
           }
         } else {
           console.log('Other invoice type:', billingReason);
 
+          // Check if this is a product subscription (has Order)
+          const productOrder = await prisma.order.findFirst({
+            where: { stripeSubscriptionId: subscriptionId },
+          });
+
+          if (productOrder) {
+            console.log('Product subscription - will be handled by invoice.payment_succeeded');
+            break;
+          }
+
+          // Handle platform subscription only
           const existingPayment = await prisma.payment.findFirst({
             where: {
               invoiceId: invoiceId,
@@ -1050,7 +1176,7 @@ const handleWebHook = catchAsync(async (req: any, res: any) => {
                   },
                 },
               });
-              console.log('Created payment record for other invoice type');
+              console.log('Created platform subscription payment record for other invoice type');
             }
           }
         }
@@ -1089,10 +1215,19 @@ const handleWebHook = catchAsync(async (req: any, res: any) => {
 
     case 'invoice.payment_succeeded': {
       const paidInvoice = event.data.object as any;
-      const subscriptionId = typeof paidInvoice.subscription === 'string' ? paidInvoice.subscription : paidInvoice.subscription?.id;
-      const customerId = typeof paidInvoice.customer === 'string' ? paidInvoice.customer : paidInvoice.customer?.id;
+      const subscriptionId =
+        typeof paidInvoice.subscription === 'string'
+          ? paidInvoice.subscription
+          : paidInvoice.subscription?.id;
+      const customerId =
+        typeof paidInvoice.customer === 'string'
+          ? paidInvoice.customer
+          : paidInvoice.customer?.id;
       const invoiceId = paidInvoice.id;
-      const paymentIntentId = typeof paidInvoice.payment_intent === 'string' ? paidInvoice.payment_intent : paidInvoice.payment_intent?.id;
+      const paymentIntentId =
+        typeof paidInvoice.payment_intent === 'string'
+          ? paidInvoice.payment_intent
+          : paidInvoice.payment_intent?.id;
 
       if (!subscriptionId) {
         console.log('No subscription ID in invoice');
@@ -1113,7 +1248,10 @@ const handleWebHook = catchAsync(async (req: any, res: any) => {
 
         if (productOrder) {
           // Handle product subscription payment
-          console.log('Processing recurring payment for product order:', productOrder.id);
+          console.log(
+            'Processing recurring payment for product order:',
+            productOrder.id,
+          );
 
           // Calculate next billing date based on invoice frequency
           let nextBillingDate = new Date();
@@ -1131,20 +1269,64 @@ const handleWebHook = catchAsync(async (req: any, res: any) => {
             data: {
               nextBillingDate,
               subscriptionStatus: SubscriptionStatus.ACTIVE,
+              invoice: paidInvoice.hosted_invoice_url || undefined,
             },
           });
 
-          // Create payment record for this recurring payment
+          // Update UserSubscription endDate for product subscription tracking
+          await prisma.userSubscription.updateMany({
+            where: {
+              stripeSubscriptionId: subscriptionId,
+              productId: productOrder.productId,
+            },
+            data: {
+              endDate: nextBillingDate,
+              paymentStatus: PaymentStatus.COMPLETED,
+            },
+          });
+          console.log(
+            '✅ Updated UserSubscription endDate to:',
+            nextBillingDate,
+          );
+
+          // Check for existing payment by subscriptionId and orderId to avoid duplicates
           const existingPayment = await prisma.payment.findFirst({
             where: {
-              invoiceId: invoiceId,
+              OR: [
+                { invoiceId: invoiceId },
+                {
+                  stripeSubscriptionId: subscriptionId,
+                  orderId: productOrder.id,
+                },
+              ],
             },
           });
 
-          if (!existingPayment) {
+          if (existingPayment) {
+            // Update existing payment with invoice details
+            await prisma.payment.update({
+              where: { id: existingPayment.id },
+              data: {
+                orderId: productOrder.id,
+                invoiceId: invoiceId,
+                paymentIntentId: paymentIntentId || existingPayment.paymentIntentId,
+                invoice: paidInvoice.hosted_invoice_url || undefined,
+                status: PaymentStatus.COMPLETED,
+                paymentAmount: paidInvoice.amount_paid
+                  ? paidInvoice.amount_paid / 100
+                  : existingPayment.paymentAmount,
+              },
+            });
+            console.log(
+              '✅ Updated existing payment record with invoice details',
+            );
+          } else {
+            // Create new payment record only if none exists
             await prisma.payment.create({
               data: {
                 userId: productOrder.userId,
+                orderId: productOrder.id,
+                productId: productOrder.productId,
                 paymentIntentId: paymentIntentId || '',
                 invoiceId: invoiceId,
                 stripeSubscriptionId: subscriptionId || '',
@@ -1156,13 +1338,18 @@ const handleWebHook = catchAsync(async (req: any, res: any) => {
                 invoice: paidInvoice.hosted_invoice_url || '',
               },
             });
-            console.log('✅ Created payment record for recurring product subscription');
+            console.log(
+              '✅ Created payment record for product subscription',
+            );
           }
 
           // Send email notification for product subscription payment
           if (productOrder.user?.email) {
             try {
-              console.log('Sending product subscription payment email to:', productOrder.user.email);
+              console.log(
+                'Sending product subscription payment email to:',
+                productOrder.user.email,
+              );
 
               await emailSender(
                 `Payment Successful - ${productOrder.product?.productName || 'Product Subscription'}`,
@@ -1237,9 +1424,14 @@ const handleWebHook = catchAsync(async (req: any, res: any) => {
 </body>
 </html>`,
               );
-              console.log('✅ Product subscription payment email sent successfully');
+              console.log(
+                '✅ Product subscription payment email sent successfully',
+              );
             } catch (emailError) {
-              console.error('❌ Failed to send product subscription email:', emailError);
+              console.error(
+                '❌ Failed to send product subscription email:',
+                emailError,
+              );
             }
           }
         } else {
@@ -1250,27 +1442,30 @@ const handleWebHook = catchAsync(async (req: any, res: any) => {
             console.log('Missing userId in subscription metadata');
             break;
           }
-          
+
           const user = await prisma.user.findFirst({
             where: { id: userId },
           });
-          
+
           if (!user) {
             console.log('User not found for subscription payment');
             break;
           }
 
-      // Send subscription activation/renewal email
-      if (user.email) {
-        try {
-          console.log('Sending user subscription payment email to:', user.email);
+          // Send subscription activation/renewal email
+          if (user.email) {
+            try {
+              console.log(
+                'Sending user subscription payment email to:',
+                user.email,
+              );
 
-          const latestInvoice = paidInvoice.hosted_invoice_url;
+              const latestInvoice = paidInvoice.hosted_invoice_url;
 
-          await emailSender(
-            'Your Subscription Payment Successful',
-            user.email,
-            `<!DOCTYPE html>
+              await emailSender(
+                'Your Subscription Payment Successful',
+                user.email,
+                `<!DOCTYPE html>
 <html>
 <head>
     <meta charset="UTF-8">
@@ -1416,20 +1611,28 @@ const handleWebHook = catchAsync(async (req: any, res: any) => {
     </div>
 </body>
                 </html>`,
-          );
-          console.log('✅ User subscription payment email sent successfully to:', user.email);
-        } catch (emailError) {
-          console.error('❌ CRITICAL: Failed to send user subscription email:', emailError);
-          // Log to external monitoring service if available
-        }
-      } else {
-        console.error('❌ CRITICAL: User has no email address, cannot send subscription notification');
-      }
+              );
+              console.log(
+                '✅ User subscription payment email sent successfully to:',
+                user.email,
+              );
+            } catch (emailError) {
+              console.error(
+                '❌ CRITICAL: Failed to send user subscription email:',
+                emailError,
+              );
+              // Log to external monitoring service if available
+            }
+          } else {
+            console.error(
+              '❌ CRITICAL: User has no email address, cannot send subscription notification',
+            );
+          }
         }
       } catch (error) {
         console.error('❌ Error processing invoice.payment_succeeded:', error);
       }
-      
+
       break;
     }
 

@@ -27,7 +27,7 @@ const getProductReviewList = catchAsync(async (req, res) => {
     statusCode: httpStatus.OK,
     success: true,
     message: 'Product reviews retrieved successfully',
-    stats: result.stats,
+    ...(result as any).stats && { stats: (result as any).stats },
     data: result.data,
     meta: result.meta,
   });
@@ -42,7 +42,7 @@ const getTrainerReviewList = catchAsync(async (req, res) => {
     statusCode: httpStatus.OK,
     success: true,
     message: 'Trainer reviews retrieved successfully',
-    stats: result.stats,
+    ...(result as any).stats && { stats: (result as any).stats },
     data: result.data,
     meta: result.meta,
   });

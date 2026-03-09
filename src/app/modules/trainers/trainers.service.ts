@@ -295,6 +295,8 @@ const getTrainersByIdFromDb = async (
     ratingCount: result.ratingCount,
     totalReferrals: result.totalReferrals,
     views: updated.views,
+    organizationName: result.orgName,
+    credentialNumber: result.credentialNo,
     specialty: result.trainerSpecialties.map(ts => ({
       id: ts.specialty.id,
       specialtyName: ts.specialty.specialtyName,
