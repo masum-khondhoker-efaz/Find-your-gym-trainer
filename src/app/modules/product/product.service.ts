@@ -384,6 +384,21 @@ const getAProductByPublicFromDb = async (productId: string) => {
   };
 };
 
+const getMyAllProductsNameFromDb = async (userId: string) => {
+  const result = await prisma.product.findMany({
+    where: {
+      userId: userId,
+      isActive: true,
+      status: ProductStatus.ACTIVE,
+    },
+    select: {
+      id: true,
+      productName: true,
+    },
+  });
+  return { data: result };
+}
+
 const getMyProductsFromDb = async (
   userId: string,
   options?: ISearchAndFilterOptions,
@@ -395,7 +410,7 @@ const getMyProductsFromDb = async (
 
   const whereClause: any = {
     userId: userId,
-    // isActive: true,
+    isActive: true,
   };
 
   // Search filter
@@ -440,19 +455,9 @@ const getMyProductsFromDb = async (
   const sortBy = options?.sortBy || 'createdAt';
   const sortOrder = options?.sortOrder || 'desc';
 
-  const [result, total] = await Promise.all([
+  const [result, total, orders] = await Promise.all([
     prisma.product.findMany({
       where: whereClause,
-      include: {
-        // user: {
-        //   select: {
-        //     id: true,
-        //     fullName: true,
-        //     email: true,
-        //     image: true,
-        //   },
-        // },
-      },
       take: limit,
       skip: offset,
       orderBy: {
@@ -460,13 +465,47 @@ const getMyProductsFromDb = async (
       },
     }),
     prisma.product.count({ where: whereClause }),
+    prisma.order.findMany({
+      where: {
+        product: {
+          userId: userId,
+        },
+      },
+    }),
   ]);
 
   const totalPages = Math.ceil(total / limit);
   const page = Number(options?.page || Math.floor(offset / limit) + 1);
 
+  // Calculate summary statistics
+  const totalSales = orders.length;
+  const totalRevenue = orders.reduce((sum, order) => sum + order.totalPrice, 0);
+
+  const flattenedResult = result.map(product => ({
+    id: product.id,
+    productName: product.productName,
+    description: product.description,
+    productImage: product.productImage,
+    durationWeeks: product.durationWeeks,
+    price: product.price,
+    totalPurchases: product.totalPurchased,
+    totalRevenue: product.totalRevenue,
+    views: product.views,
+    ratingCount: product.ratingCount,
+    avgRating: product.avgRating,
+    createdAt: product.createdAt,
+    updatedAt: product.updatedAt,
+    status: product.status,
+    isActive: product.isActive,
+  }));
+
   return {
-    data: result,
+    data: flattenedResult,
+    summary: {
+      totalProducts: total,
+      totalSales,
+      totalRevenue: Number(totalRevenue.toFixed(2)),
+    },
     meta: {
       page,
       limit,
@@ -580,6 +619,7 @@ const getAProductFromDb = async (userId: string, productId: string) => {
 export const productService = {
   createProductIntoDb,
   getProductListFromDb,
+  getMyAllProductsNameFromDb,
   getProductsByTrainerFromDb,
   getMyProductsFromDb,
   getAProductByPublicFromDb,

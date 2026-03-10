@@ -48,6 +48,8 @@ export interface ISearchAndFilterOptions extends IPaginationOptions {
   subscriptionType?: string;
   duration?: string;
   currentState?: string;
+  year?: number | string;
+  month?: number | string;
 
   // User-related filters
   userStatus?: string;

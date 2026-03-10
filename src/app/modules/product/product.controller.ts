@@ -6,6 +6,7 @@ import { uploadFileToS3 } from '../../utils/multipleFile';
 import AppError from '../../errors/AppError';
 import { deleteFileFromSpace } from '../../utils/deleteImage';
 import { ISearchAndFilterOptions } from '../../interface/pagination.type';
+import { boolean } from 'zod';
 
 const createProduct = catchAsync(async (req, res) => {
   const user = req.user as any;
@@ -102,12 +103,22 @@ const getProductByIdPublic = catchAsync(async (req, res) => {
 
 const getMyProducts = catchAsync(async (req, res) => {
   const user = req.user as any;
+  if(req.query.productName === 'true') {
+    const result = await productService.getMyAllProductsNameFromDb(user.id);
+    return sendResponse(res, {
+      statusCode: httpStatus.OK,
+      success: true,
+      message: 'My products retrieved successfully',
+      data: result.data
+    });
+  }
 
   const result = await productService.getMyProductsFromDb(user.id, req.query as ISearchAndFilterOptions);
   sendResponse(res, {
     statusCode: httpStatus.OK,
     success: true,
     message: 'My products retrieved successfully',
+    stats: result.summary,
     data: result.data,
     meta: result.meta,
   });

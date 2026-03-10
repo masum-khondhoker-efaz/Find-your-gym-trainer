@@ -20,4 +20,22 @@ router.get(
   trainersController.getTrainersById,
 );
 
+router.get(
+  '/earnings',
+  auth(UserRoleEnum.TRAINER),
+  trainersController.getTrainerEarnings,
+);
+
+router.get(
+  '/recent-transactions',
+  auth(UserRoleEnum.TRAINER),
+  trainersController.getTrainerRecentTransactions,
+);
+
+router.get(
+  '/dashboard',
+  auth(UserRoleEnum.TRAINER),
+  trainersController.getTrainerDashboard,
+);
+
 export const trainersRoutes = router;

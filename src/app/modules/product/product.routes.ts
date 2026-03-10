@@ -31,6 +31,7 @@ router.get(
   productController.getMyProducts,
 );
 
+
 router.get(
   '/my-products/:id',
   auth(UserRoleEnum.TRAINER),

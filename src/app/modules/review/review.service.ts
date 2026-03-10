@@ -424,6 +424,13 @@ const getTrainerReviewListFromDb = async (
       ? allTrainerReviews.reduce((sum, review) => sum + review.rating, 0) /
         totalRatings
       : 0;
+  const totalReviews = allTrainerReviews.length;
+  const ratingDistribution = [0, 0, 0, 0, 0]; // Index 0 for 1-star, Index 4 for 5-star
+  allTrainerReviews.forEach(review => {
+    if (review.rating >= 1 && review.rating <= 5) {
+      ratingDistribution[review.rating - 1]++;
+    }
+  });
 
   // Return paginated response with stats
   const paginationResult = formatPaginationResponse(
@@ -438,6 +445,8 @@ const getTrainerReviewListFromDb = async (
     stats: {
       totalRatings,
       averageRating: parseFloat(averageRating.toFixed(2)),
+      totalReviews,
+      ratingDistribution,
     },
   };
 };

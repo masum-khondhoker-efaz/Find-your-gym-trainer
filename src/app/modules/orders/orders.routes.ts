@@ -3,6 +3,7 @@ import auth from '../../middlewares/auth';
 import validateRequest from '../../middlewares/validateRequest';
 import { ordersController } from './orders.controller';
 import { ordersValidation } from './orders.validation';
+import { UserRoleEnum } from '@prisma/client';
 
 const router = express.Router();
 
@@ -14,6 +15,8 @@ router.post(
 );
 
 router.get('/', auth(), ordersController.getOrdersList);
+
+router.get('/current-orders', auth(UserRoleEnum.TRAINER), ordersController.getTrainerOrdersList);
 
 router.get('/:id', auth(), ordersController.getOrdersById);
 

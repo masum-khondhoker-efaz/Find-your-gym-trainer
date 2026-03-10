@@ -1,5 +1,5 @@
 import prisma from '../../utils/prisma';
-import { OrderState, OrderStatus, PaymentStatus, ProductStatus } from '@prisma/client';
+import { OrderState, OrderStatus, PaymentStatus, ProductStatus, UserRoleEnum } from '@prisma/client';
 import AppError from '../../errors/AppError';
 import httpStatus from 'http-status';
 import Stripe from 'stripe';
@@ -270,7 +270,7 @@ const createOrdersIntoDb = async (
 
 const getOrdersListFromDb = async (userId: string, role?: string, options?: ISearchAndFilterOptions) => {
   // Check if admin
-  const isAdmin = role === 'ADMIN' || role === 'SUPER_ADMIN';
+  const isAdmin = role === UserRoleEnum.ADMIN || role === UserRoleEnum.SUPER_ADMIN;
 
   // Calculate pagination
   const paginationOptions = calculatePagination({
@@ -386,6 +386,132 @@ const getOrdersListFromDb = async (userId: string, role?: string, options?: ISea
 
   return formatPaginationResponse(flattenedResult, total, paginationOptions.page, paginationOptions.limit);
 };
+
+const getTrainerOrdersListFromDb = async (trainerId: string, options?: ISearchAndFilterOptions) => {
+  // Calculate pagination
+  const paginationOptions = calculatePagination({
+    page: options?.page || 1,
+    limit: options?.limit || 10,
+    sortBy: options?.sortBy || 'createdAt',
+    sortOrder: options?.sortOrder || 'desc',
+  });
+  
+  // Build where conditions
+  const whereConditions: any = {
+    trainerId,
+  };
+  
+  // Add status filter  
+  if (options?.orderStatus) {
+    whereConditions.status = options.orderStatus as OrderStatus;
+  }
+
+  if (options?.productName) {
+    whereConditions.product = {
+      productName: {
+        contains: options.productName,
+        mode: 'insensitive',
+      },
+    };
+  }
+
+  // Add currentState filter
+  if (options?.currentState) {
+    whereConditions.currentState = options.currentState as OrderState;
+  }
+  
+  // Add payment status filter
+  if (options?.paymentStatus) {
+    whereConditions.paymentStatus = options.paymentStatus as PaymentStatus;
+  }
+  
+  // Add search term for order-related fields
+  if (options?.searchTerm) {
+    whereConditions.OR = [
+      {
+        user: {
+          fullName: {
+            contains: options.searchTerm,
+            mode: 'insensitive',
+          },
+        },
+      },
+      {
+        user: {
+          email: {
+            contains: options.searchTerm,
+            mode: 'insensitive',
+          },
+        },
+      },
+    ];
+  }
+  
+  // Get total count
+  const total = await prisma.order.count({
+    where: whereConditions,
+  });
+  
+  // Fetch paginated results
+  const result = await prisma.order.findMany({
+    where: whereConditions,
+    include: {
+      product: {
+        select: {
+          id: true,
+          productName: true,
+          productImage: true,
+          price: true,
+        },
+      },
+      user: {
+        select: {
+          id: true,
+          fullName: true,
+          email: true,
+          image: true,
+        },
+      },
+      trainer: {
+        select: {
+          userId: true,
+          user: {
+            select: {
+              fullName: true,
+              email: true,
+            },
+          },
+        },
+      },
+    },
+    orderBy: {
+      [paginationOptions.sortBy]: paginationOptions.sortOrder,
+    },
+    skip: paginationOptions.skip,
+    take: paginationOptions.limit,
+  });
+  
+  if (result.length === 0) {
+    return formatPaginationResponse([], total, paginationOptions.page, paginationOptions.limit);
+  }
+
+  // Flatten trainer info
+  const flattenedResult = result.map((order) => {
+    const { trainer, user, ...orderWithoutRelations } = order;
+    return {
+      ...orderWithoutRelations,
+      customer: {
+        userId: user.id,
+        customerName: user.fullName,
+        customerEmail: user.email,
+        customerImage: user.image,
+      },
+    };
+  });
+  
+  return formatPaginationResponse(flattenedResult, total, paginationOptions.page, paginationOptions.limit);
+};
+
 
 const getOrdersByIdFromDb = async (userId: string, orderId: string, role?: string) => {
   const isAdmin = role === 'ADMIN' || role === 'SUPER_ADMIN';
@@ -589,4 +715,5 @@ export const ordersService = {
   getOrdersByIdFromDb,
   updateOrdersIntoDb,
   deleteOrdersItemFromDb,
+  getTrainerOrdersListFromDb,
 };

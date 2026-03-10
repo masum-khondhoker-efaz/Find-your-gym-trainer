@@ -29,6 +29,18 @@ const getOrdersList = catchAsync(async (req, res) => {
   });
 });
 
+const getTrainerOrdersList = catchAsync(async (req, res) => {
+  const user = req.user as any;
+  const result = await ordersService.getTrainerOrdersListFromDb(user.id, req.query as ISearchAndFilterOptions);
+  sendResponse(res, {
+    statusCode: httpStatus.OK,
+    success: true,
+    message: 'Trainer orders list retrieved successfully',
+    data: result.data,
+    meta: result.meta,
+  });
+});
+
 const getOrdersById = catchAsync(async (req, res) => {
   const user = req.user as any;
   const result = await ordersService.getOrdersByIdFromDb(user.id, req.params.id, user.role);
@@ -73,4 +85,5 @@ export const ordersController = {
   getOrdersById,
   updateOrders,
   deleteOrders,
+  getTrainerOrdersList,
 };

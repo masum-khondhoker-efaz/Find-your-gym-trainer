@@ -1,9 +1,11 @@
 import { TrainerSpecialty } from './../../../../node_modules/.prisma/client/index.d';
 import prisma from '../../utils/prisma';
-import { UserRoleEnum, UserStatus } from '@prisma/client';
+import { UserRoleEnum, UserStatus, PaymentStatus, OrderStatus, ProductStatus } from '@prisma/client';
 import AppError from '../../errors/AppError';
 import httpStatus from 'http-status';
 import { ISearchAndFilterOptions } from '../../interface/pagination.type';
+import { stat } from 'node:fs';
+import { image } from 'pdfkit';
 
 // Haversine formula to calculate distance between two coordinates
 const calculateDistance = (
@@ -508,7 +510,295 @@ const getMemberListFromDb = async (
   };
 };
 
+const getTrainerEarningsFromDb = async (
+  trainerId: string,
+  options: ISearchAndFilterOptions,
+) => {
+  const year = Number((options as any)?.year || new Date().getFullYear());
+
+  if (!Number.isFinite(year) || year < 1900 || year > 3000) {
+    throw new AppError(httpStatus.BAD_REQUEST, 'Invalid year');
+  }
+
+  const startDate = new Date(Date.UTC(year, 0, 1, 0, 0, 0));
+  const endDate = new Date(Date.UTC(year + 1, 0, 1, 0, 0, 0));
+
+  const prevStartDate = new Date(Date.UTC(year - 1, 0, 1, 0, 0, 0));
+  const prevEndDate = new Date(Date.UTC(year, 0, 1, 0, 0, 0));
+
+  const [currentYearPayments, previousYearPayments] = await Promise.all([
+    (prisma as any).order.findMany({
+      where: {
+        trainerId,
+        paymentStatus: PaymentStatus.COMPLETED,
+        status: OrderStatus.COMPLETED,
+        createdAt: { gte: startDate, lt: endDate },
+      },
+      select: {
+        totalPrice: true,
+        createdAt: true,
+      },
+    }),
+    (prisma as any).order.findMany({
+      where: {
+        trainerId,
+        paymentStatus: PaymentStatus.COMPLETED,
+        status: OrderStatus.COMPLETED,
+        createdAt: { gte: prevStartDate, lt: prevEndDate },
+      },
+      select: {
+        totalPrice: true,
+        createdAt: true,
+      },
+    }),
+  ]);
+
+  const monthlyRevenue = Array(12).fill(0);
+
+  for (const p of currentYearPayments) {
+    const totalPrice = Number(p.totalPrice || 0);
+    const monthIndex = new Date(p.createdAt).getUTCMonth();
+    monthlyRevenue[monthIndex] += totalPrice;
+  }
+
+  const totalRevenue = monthlyRevenue.reduce((sum, v) => sum + v, 0);
+  const monthlyAverage = totalRevenue / 12;
+
+  const previousYearTotal = previousYearPayments.reduce(
+    (sum: number, p: any) => sum + Number(p.totalPrice || 0),
+    0,
+  );
+
+  const growthRate =
+    previousYearTotal > 0
+      ? ((totalRevenue - previousYearTotal) / previousYearTotal) * 100
+      : totalRevenue > 0
+      ? 100
+      : 0;
+
+  const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+  const q1 = monthlyRevenue[0] + monthlyRevenue[1] + monthlyRevenue[2];
+  const q2 = monthlyRevenue[3] + monthlyRevenue[4] + monthlyRevenue[5];
+  const q3 = monthlyRevenue[6] + monthlyRevenue[7] + monthlyRevenue[8];
+  const q4 = monthlyRevenue[9] + monthlyRevenue[10] + monthlyRevenue[11];
+
+  return {
+    year,
+    totalRevenue: Number(totalRevenue.toFixed(2)),
+    monthlyAverage: Number(monthlyAverage.toFixed(2)),
+    growthRate: Number(growthRate.toFixed(2)),
+    revenueOverview: {
+      line: {
+        labels: months,
+        data: monthlyRevenue.map(v => Number(v.toFixed(2))),
+      },
+      bar: {
+        labels: months,
+        data: monthlyRevenue.map(v => Number(v.toFixed(2))),
+      },
+      pie: {
+        labels: ['Q1', 'Q2', 'Q3', 'Q4'],
+        data: [q1, q2, q3, q4].map(v => Number(v.toFixed(2))),
+      },
+    },
+  };
+};
+
+const getTrainerRecentTransactionsFromDb = async (trainerId: string) => {
+  const transactions = await (prisma as any).order.findMany({
+    where: {
+      trainerId,
+      paymentStatus: PaymentStatus.COMPLETED,
+      status: OrderStatus.COMPLETED,
+    },
+    orderBy: {
+      createdAt: 'desc',
+    },
+    take: 10,
+    select: {
+      id: true,
+      totalPrice: true,
+      createdAt: true,
+      user: {
+        select: {
+          id: true,
+          fullName: true,
+          email: true,
+          image: true,
+        },
+      },
+      product: {
+        select: {
+          id: true,
+          productName: true,
+        },
+      },
+    },
+  });
+
+  // Format transactions 
+   const formattedTransactions = transactions.map((tx: typeof transactions[0]) => ({
+    id: tx.id,
+    totalPrice: Number(tx.totalPrice.toFixed(2)),
+    createdAt: tx.createdAt,
+    customer: {
+      id: tx.user.id,
+      fullName: tx.user.fullName,
+      email: tx.user.email,
+      image: tx.user.image,
+    },
+    product: {
+      id: tx.product.id,
+      productName: tx.product.productName,
+    },
+  }));
+
+  return formattedTransactions;
+};
+
+const getTrainerDashboardFromDb = async (trainerId: string) => {
+  // Get all products for this trainer
+  const trainerProducts = await (prisma as any).product.findMany({
+    where: {
+      userId: trainerId,
+      isActive: true,
+      status: ProductStatus.ACTIVE,
+    },
+    select: {
+      id: true,
+      capacity: true,
+      totalPurchased: true,
+      durationWeeks: true,
+    },
+  });
+
+  // Calculate total capacity and active clients across all products
+  const totalCapacity = trainerProducts.reduce(
+    (sum: number, p: any) => sum + (p.capacity || 0),
+    0,
+  );
+  
+  const activeClients = trainerProducts.reduce(
+    (sum: number, p: any) => sum + (p.totalPurchased || 0),
+    0,
+  );
+  
+  const spotsRemaining = totalCapacity - activeClients;
+
+  // Calculate total weeks across all products
+  const totalWeeks = trainerProducts.reduce(
+    (sum: number, p: any) => sum + (p.durationWeeks || 0),
+    0,
+  );
+
+  // Get this month's revenue
+  const now = new Date();
+  const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+  const endOfMonth = new Date(now.getFullYear(), now.getMonth() + 1, 1);
+
+  // Get last month's revenue for comparison
+  const startOfLastMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+  const endOfLastMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+
+  const [thisMonthOrders, lastMonthOrders] = await Promise.all([
+    (prisma as any).order.findMany({
+      where: {
+        trainerId,
+        paymentStatus: PaymentStatus.COMPLETED,
+        status: OrderStatus.COMPLETED,
+        createdAt: {
+          gte: startOfMonth,
+          lt: endOfMonth,
+        },
+      },
+      select: {
+        totalPrice: true,
+      },
+    }),
+    (prisma as any).order.findMany({
+      where: {
+        trainerId,
+        paymentStatus: PaymentStatus.COMPLETED,
+        status: OrderStatus.COMPLETED,
+        createdAt: {
+          gte: startOfLastMonth,
+          lt: endOfLastMonth,
+        },
+      },
+      select: {
+        totalPrice: true,
+      },
+    }),
+  ]);
+
+  const thisMonthRevenue = thisMonthOrders.reduce(
+    (sum: number, o: any) => sum + Number(o.totalPrice || 0),
+    0,
+  );
+
+  const lastMonthRevenue = lastMonthOrders.reduce(
+    (sum: number, o: any) => sum + Number(o.totalPrice || 0),
+    0,
+  );
+
+  // Calculate percentage change
+  const revenueChangePercent =
+    lastMonthRevenue > 0
+      ? ((thisMonthRevenue - lastMonthRevenue) / lastMonthRevenue) * 100
+      : thisMonthRevenue > 0
+      ? 100
+      : 0;
+
+  // Get trainer rating data
+  const trainerData = await prisma.trainer.findUnique({
+    where: {
+      userId: trainerId,
+    },
+    select: {
+      avgRating: true,
+      ratingCount: true,
+    },
+  });
+
+  // Count total products and products sold this month
+  const totalProducts = trainerProducts.length;
+  const productsSoldThisMonth = thisMonthOrders.length;
+
+  return {
+    activeClients: {
+      current: activeClients,
+      total: totalCapacity,
+      spotsRemaining: spotsRemaining,
+      message: `${activeClients}/${totalCapacity}, ${spotsRemaining} spots remaining from all products`,
+    },
+    thisMonthRevenue: {
+      amount: Number(thisMonthRevenue.toFixed(2)),
+      changePercent: Number(revenueChangePercent.toFixed(2)),
+      message: `$${thisMonthRevenue.toFixed(2)} (${revenueChangePercent >= 0 ? '+' : ''}${revenueChangePercent.toFixed(0)}% from last month)`,
+    },
+    averageRating: {
+      rating: trainerData?.avgRating || 0,
+      totalReviews: trainerData?.ratingCount || 0,
+      message: `${trainerData?.avgRating?.toFixed(1) || '0.0'} based on ${trainerData?.ratingCount || 0} reviews`,
+    },
+    productsSold: {
+      soldThisMonth: productsSoldThisMonth,
+      totalProducts: totalProducts,
+      message: `${productsSoldThisMonth} (total ${totalProducts} products)`,
+    },
+    totalWeeks: {
+      weeks: totalWeeks,
+      message: `${totalWeeks} (total durationOfWeeks from all products)`,
+    },
+  };
+};
+
 export const trainersService = {
   getTrainersListFromDb,
   getTrainersByIdFromDb,
+  getMemberListFromDb,
+  getTrainerEarningsFromDb,
+  getTrainerRecentTransactionsFromDb,
+  getTrainerDashboardFromDb,
 };
