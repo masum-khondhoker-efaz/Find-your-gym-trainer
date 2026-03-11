@@ -32,13 +32,14 @@ router.get(
 
 router.post(
   '/system',
-  auth(UserRoleEnum.MEMBER),
+  auth(UserRoleEnum.MEMBER, UserRoleEnum.TRAINER),
   validateRequest(reviewValidation.createSystemReviewSchema),
   reviewController.createSystemReview,
 );
 
 router.get(
   '/system',
+  auth(UserRoleEnum.SUPER_ADMIN, UserRoleEnum.ADMIN),
   reviewController.getSystemReviewList,
 );
 

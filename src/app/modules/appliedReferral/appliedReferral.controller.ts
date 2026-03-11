@@ -3,6 +3,18 @@ import sendResponse from '../../utils/sendResponse';
 import catchAsync from '../../utils/catchAsync';
 import { appliedReferralService } from './appliedReferral.service';
 
+// NEW: Validate referral code and get discount preview
+const validateReferralCode = catchAsync(async (req, res) => {
+  const user = req.user as any;
+  const result = await appliedReferralService.validateReferralCodeAndGetDiscount(user.id, req.body);
+  sendResponse(res, {
+    statusCode: httpStatus.OK,
+    success: true,
+    message: 'Referral code is valid',
+    data: result,
+  });
+});
+
 const createAppliedReferral = catchAsync(async (req, res) => {
   const user = req.user as any;
   const result = await appliedReferralService.createAppliedReferralIntoDb(user.id, req.body);
@@ -59,6 +71,7 @@ const deleteAppliedReferral = catchAsync(async (req, res) => {
 });
 
 export const appliedReferralController = {
+  validateReferralCode,
   createAppliedReferral,
   getAppliedReferralList,
   getAppliedReferralById,

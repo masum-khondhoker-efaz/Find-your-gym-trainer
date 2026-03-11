@@ -9,7 +9,7 @@ const createSchema = z.object({
             .string()
             .transform(val => val.toUpperCase())
             .pipe(
-              z.enum(['FACEBOOK', 'X', 'LINKEDIN'], {
+              z.enum(['FACEBOOK', 'X', 'LINKEDIN', 'INSTAGRAM', 'YOUTUBE', 'TIKTOK', 'WEBSITE'], {
                 required_error: 'Platform type is required!',
               }),
             ),
@@ -27,7 +27,7 @@ export const updateSchema = z.object({
         .string()
         .transform(val => val.toUpperCase())
         .pipe(
-          z.enum(['FACEBOOK', 'X', 'LINKEDIN'], {
+          z.enum(['FACEBOOK', 'X', 'LINKEDIN', 'INSTAGRAM', 'YOUTUBE', 'TIKTOK', 'WEBSITE'], {
             required_error: 'Platform type is required!',
           }),
         ),

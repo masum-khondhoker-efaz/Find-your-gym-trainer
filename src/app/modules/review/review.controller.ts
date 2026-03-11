@@ -3,13 +3,17 @@ import sendResponse from '../../utils/sendResponse';
 import catchAsync from '../../utils/catchAsync';
 import { reviewService } from './review.service';
 import { ISearchAndFilterOptions } from '../../interface/pagination.type';
+import { UserRoleEnum } from '@prisma/client';
 
 // ==================== PRODUCT REVIEWS ====================
 // Note: Product reviews automatically review the trainer who created the product
 
 const createProductReview = catchAsync(async (req, res) => {
   const user = req.user as any;
-  const result = await reviewService.createProductReviewIntoDb(user.id, req.body);
+  const result = await reviewService.createProductReviewIntoDb(
+    user.id,
+    req.body,
+  );
   sendResponse(res, {
     statusCode: httpStatus.CREATED,
     success: true,
@@ -27,7 +31,7 @@ const getProductReviewList = catchAsync(async (req, res) => {
     statusCode: httpStatus.OK,
     success: true,
     message: 'Product reviews retrieved successfully',
-    ...(result as any).stats && { stats: (result as any).stats },
+    ...((result as any).stats && { stats: (result as any).stats }),
     data: result.data,
     meta: result.meta,
   });
@@ -42,7 +46,7 @@ const getTrainerReviewList = catchAsync(async (req, res) => {
     statusCode: httpStatus.OK,
     success: true,
     message: 'Trainer reviews retrieved successfully',
-    ...(result as any).stats && { stats: (result as any).stats },
+    ...((result as any).stats && { stats: (result as any).stats }),
     data: result.data,
     meta: result.meta,
   });
@@ -52,13 +56,29 @@ const getTrainerReviewList = catchAsync(async (req, res) => {
 
 const createSystemReview = catchAsync(async (req, res) => {
   const user = req.user as any;
-  const result = await reviewService.createSystemReviewIntoDb(user.id, req.body);
-  sendResponse(res, {
-    statusCode: httpStatus.CREATED,
-    success: true,
-    message: 'System review created successfully',
-    data: result,
-  });
+  if (user.role !== UserRoleEnum.TRAINER) {
+    const result = await reviewService.createSystemReviewIntoDb(
+      user.id,
+      req.body,
+    );
+    sendResponse(res, {
+      statusCode: httpStatus.CREATED,
+      success: true,
+      message: 'System review created successfully',
+      data: result,
+    });
+  } else {
+    const result = await reviewService.createSystemReviewIntoDbForTrainer(
+      user.id,
+      req.body,
+    );
+    sendResponse(res, {
+      statusCode: httpStatus.CREATED,
+      success: true,
+      message: 'System review for trainer created successfully',
+      data: result,
+    });
+  }
 });
 
 const getSystemReviewList = catchAsync(async (req, res) => {
@@ -111,7 +131,10 @@ const updateReview = catchAsync(async (req, res) => {
 
 const deleteReview = catchAsync(async (req, res) => {
   const user = req.user as any;
-  const result = await reviewService.deleteReviewItemFromDb(user.id, req.params.id);
+  const result = await reviewService.deleteReviewItemFromDb(
+    user.id,
+    req.params.id,
+  );
   sendResponse(res, {
     statusCode: httpStatus.OK,
     success: true,

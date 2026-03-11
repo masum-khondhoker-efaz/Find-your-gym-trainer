@@ -5,6 +5,7 @@ import { postController } from './post.controller';
 import { postValidation } from './post.validation';
 import { multerUploadMultiple } from '../../utils/multipleFile';
 import { parseBody } from '../../middlewares/parseBody';
+import checkSubscriptionForTrainers from '../../middlewares/checkSubscriptionForSalonOwners';
 
 const router = express.Router();
 
@@ -13,6 +14,7 @@ router.post(
   multerUploadMultiple.single('post-media'),
   parseBody,
   auth(),
+  checkSubscriptionForTrainers(),
   validateRequest(postValidation.createSchema),
   postController.createPost,
 );

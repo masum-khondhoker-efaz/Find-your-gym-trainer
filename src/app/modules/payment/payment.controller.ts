@@ -6,6 +6,7 @@ import Stripe from 'stripe';
 import config from '../../../config';
 import prisma from '../../utils/prisma';
 import {
+  AppliedReferralStatus,
   OrderStatus,
   PaymentStatus,
   SubscriptionPlanStatus,
@@ -695,6 +696,31 @@ const handleWebHook = catchAsync(async (req: any, res: any) => {
             '✅ Pricing rule usage recorded for rule:',
             pricingRuleId,
           );
+        }
+
+        // Process referral code if applied
+        const referralId = subscription.metadata?.referralId;
+        const referralCode = subscription.metadata?.referralCode;
+
+        if (referralId && referralCode) {
+          try {
+            // Create AppliedReferral with APPLIED status
+            await prisma.appliedReferral.create({
+              data: {
+                userId: user.id,
+                referralId: referralId,
+                status: AppliedReferralStatus.APPLIED,
+              },
+            });
+
+            console.log(
+              '✅ Referral code applied successfully:',
+              referralCode,
+            );
+          } catch (referralError) {
+            console.error('⚠️ Error applying referral code:', referralError);
+            // Don't fail the subscription if referral tracking fails
+          }
         }
 
         console.log('✅ Platform subscription fully processed from webhook');

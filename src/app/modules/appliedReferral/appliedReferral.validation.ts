@@ -8,8 +8,7 @@ const createSchema = z.object({
 
 const updateSchema = z.object({
   body: z.object({
-    name: z.string().optional(),
-    description: z.string().optional(),
+    referralCode: z.string().min(1, 'Referral code is required').optional(),  
     }),
 });
 

@@ -211,33 +211,33 @@ model referralRewardSettings {
 model Referral {
   id             String   @id @default(auto()) @map("_id") @db.ObjectId
   userId         String   @db.ObjectId
-  referralCode   String
+  referralCode   String   @unique
   stripeCouponId String?
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
 
-  // Relationships
   user             User              @relation(fields: [userId], references: [id])
   appliedReferrals AppliedReferral[]
 
-  @@unique([referralCode, userId]) // prevent duplicate referrals
+  @@index([userId])
   @@map("referrals")
 }
 
-model AppliedReferral {
-  id           String                @id @default(auto()) @map("_id") @db.ObjectId
-  userId       String                @db.ObjectId
-  referralId   String                @db.ObjectId
-  referralCode String?
-  status       AppliedReferralStatus @default(PENDING)
-  createdAt    DateTime              @default(now())
-  updatedAt    DateTime              @updatedAt
 
-  // Relationships
+model AppliedReferral {
+  id         String                @id @default(auto()) @map("_id") @db.ObjectId
+  userId     String                @db.ObjectId
+  referralId String                @db.ObjectId
+  status     AppliedReferralStatus @default(PENDING)
+  createdAt  DateTime              @default(now())
+  updatedAt  DateTime              @updatedAt
+
   referral Referral @relation(fields: [referralId], references: [id])
   user     User     @relation(fields: [userId], references: [id])
 
-  @@unique([referralCode, userId]) // prevent duplicate applied referrals
+  @@unique([userId, referralId])
+  @@index([userId])
+  @@index([referralId])
   @@map("applied_referrals")
 }
 
@@ -350,7 +350,7 @@ model SocialAccount {
 
   user User @relation(fields: [userId], references: [id])
 
-  @@unique([userId, platformType]) // one platform per user
+  @@unique([userId, platformType, platformUrl]) // one platform per user
   @@map("social_accounts")
 }
 
@@ -997,7 +997,7 @@ enum ReviewType {
 
 enum AppliedReferralStatus {
   PENDING
-  APPROVED
+  APPLIED
   REJECTED
   EXPIRED
 }
@@ -1055,6 +1055,10 @@ enum SocialPlatformType {
   LINKEDIN
   FACEBOOK
   X
+  INSTAGRAM
+  YOUTUBE
+  TIKTOK
+  WEBSITE
 }
 
 enum PlatFormType {

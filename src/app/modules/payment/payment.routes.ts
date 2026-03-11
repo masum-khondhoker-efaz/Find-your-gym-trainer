@@ -3,6 +3,7 @@ import auth from '../../middlewares/auth';
 import validateRequest from '../../middlewares/validateRequest';
 import { paymentController } from './payment.controller';
 import { paymentValidation } from './payment.validation';
+import { UserRoleEnum } from '@prisma/client';
 
 const router = express.Router();
 
@@ -22,7 +23,7 @@ router.get('/:id', auth(), paymentController.getPaymentById);
 
 router.post(
   '/cancel-payment',
-  auth(),
+  auth(UserRoleEnum.TRAINER),
   // validateRequest(cancelPaymentPayloadSchema),
   paymentController.cancelPaymentRequest,
 );

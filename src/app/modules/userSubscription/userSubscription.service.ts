@@ -1,5 +1,6 @@
 import prisma from '../../utils/prisma';
 import {
+  AppliedReferralStatus,
   PaymentStatus,
   PricingRuleType,
   Prisma,
@@ -17,6 +18,21 @@ const stripe = new Stripe(config.stripe.stripe_secret_key as string, {
   apiVersion: '2025-08-27.basil',
 });
 0;
+
+// Helper function to generate a unique, readable referral code
+const generateReferralCode = (userId: string, fullName: string): string => {
+  // Get last 8 characters of MongoDB ObjectId (ensures uniqueness)
+  const idSuffix = userId.slice(-8).toUpperCase();
+  
+  // Get first 3 letters of name (if available) and make uppercase
+  const namePrefix = fullName
+    .replace(/[^a-zA-Z]/g, '') // Remove non-alphabetic characters
+    .slice(0, 3)
+    .toUpperCase() || 'REF';
+  
+  // Combine: e.g., "JOH-A1B2C3D4"
+  return `${namePrefix}-${idSuffix}`;
+};
 
 const createUserSubscriptionIntoDb = async (
   userId: string,
@@ -316,13 +332,31 @@ const createUserSubscriptionFromWebhook = async (
       await tx.user.update({
         where: { id: userId },
         data: {
-          isProfileComplete: true, // Assuming subscription completion means profile is complete
+          isProfileComplete: true, // Subscription completion means profile is complete
           isSubscribed: true,
           subscriptionEnd: endDate,
           subscriptionPlan: subscriptionOffer.planType,
           stripeSubscriptionId: subscription.id,
         },
       });
+
+      // Generate and create unique referral code for the user
+      const referralCode = generateReferralCode(user.id, user.fullName);
+      
+      // Check if referral already exists for this user
+      const existingReferral = await tx.referral.findFirst({
+        where: { userId: user.id },
+      });
+
+      if (!existingReferral) {
+        // Create referral code entry
+        await tx.referral.create({
+          data: {
+            userId: user.id,
+            referralCode: referralCode,
+          },
+        });
+      }
 
       return createdSubscription;
     },
@@ -828,6 +862,7 @@ const createCheckoutSessionInStripe = async (
   data: {
     subscriptionOfferId: string;
     pricingRuleId?: string; // Optional pricing rule
+    referralCode?: string; // Optional referral code for discount
     // successUrl: string;
     // cancelUrl: string;
   },
@@ -872,11 +907,29 @@ const createCheckoutSessionInStripe = async (
     });
   }
 
-  // Check for applicable pricing rules
-  let applicablePricingRule = null;
+  // Check for referral code discount first (takes priority)
+  let referralDiscount = null;
   let stripeCouponId: string | undefined = undefined;
+  let discountAmount = 0;
 
-  if (data.pricingRuleId) {
+  if (data.referralCode) {
+    try {
+      referralDiscount = await processReferralCodeDiscount(
+        userId,
+        data.referralCode,
+      );
+      stripeCouponId = referralDiscount.stripeCouponId;
+      discountAmount = referralDiscount.discountAmount;
+    } catch (error) {
+      // If referral code processing fails, throw the error to the client
+      throw error;
+    }
+  }
+
+  // Check for applicable pricing rules (only if no referral code applied)
+  let applicablePricingRule = null;
+
+  if (!referralDiscount && data.pricingRuleId) {
     // User selected a specific pricing rule
     applicablePricingRule = await prisma.subscriptionPricingRule.findUnique({
       where: { id: data.pricingRuleId },
@@ -912,6 +965,7 @@ const createCheckoutSessionInStripe = async (
       // Use the best discount (first in sorted list)
       applicablePricingRule = applicableRules[0];
       stripeCouponId = applicablePricingRule.stripeCouponId || undefined;
+      discountAmount = applicablePricingRule.discountAmount || 0;
     }
   }
 
@@ -932,12 +986,16 @@ const createCheckoutSessionInStripe = async (
       userId: userId,
       subscriptionOfferId: data.subscriptionOfferId,
       pricingRuleId: applicablePricingRule?.id || '',
+      referralId: referralDiscount?.referralId || '',
+      referralCode: referralDiscount?.referralCode || '',
     },
     subscription_data: {
       metadata: {
         userId: userId,
         subscriptionOfferId: data.subscriptionOfferId,
         pricingRuleId: applicablePricingRule?.id || '',
+        referralId: referralDiscount?.referralId || '',
+        referralCode: referralDiscount?.referralCode || '',
       },
     },
   };
@@ -956,8 +1014,17 @@ const createCheckoutSessionInStripe = async (
   return {
     sessionId: session.id,
     url: session.url,
-    appliedDiscount: applicablePricingRule
+    appliedDiscount: referralDiscount
       ? {
+          type: 'referral',
+          code: referralDiscount.referralCode,
+          discountAmount: referralDiscount.discountAmount,
+          originalPrice: subscriptionOffer.price,
+          discountedPrice: subscriptionOffer.price - referralDiscount.discountAmount,
+        }
+      : applicablePricingRule
+      ? {
+          type: 'pricing_rule',
           name: applicablePricingRule.name,
           discountAmount: applicablePricingRule.discountAmount,
           originalPrice: subscriptionOffer.price,
@@ -1042,6 +1109,92 @@ const validatePricingRuleEligibility = async (
       );
     }
   }
+};
+
+// Helper function to validate and process referral code discount
+const processReferralCodeDiscount = async (
+  userId: string,
+  referralCode: string,
+) => {
+  // Find the referral code
+  const referral = await prisma.referral.findFirst({
+    where: {
+      referralCode: referralCode,
+    },
+    include: {
+      user: true,
+    },
+  });
+
+  if (!referral) {
+    throw new AppError(httpStatus.NOT_FOUND, 'Invalid referral code');
+  }
+
+  // Check if user is trying to apply their own referral code
+  if (referral.userId === userId) {
+    throw new AppError(
+      httpStatus.BAD_REQUEST,
+      'You cannot apply your own referral code',
+    );
+  }
+
+  // Check if user has already applied this referral code
+  const existingAppliedReferral = await prisma.appliedReferral.findFirst({
+    where: {
+      userId: userId,
+      referralId: referral.id,
+      status: AppliedReferralStatus.APPLIED,
+    },
+  });
+
+  if (existingAppliedReferral) {
+    throw new AppError(
+      httpStatus.BAD_REQUEST,
+      'You have already applied this referral code',
+    );
+  }
+
+  // Get the referral reward amount from settings
+  const referralRewardSettings = await prisma.referralRewardSettings.findFirst();
+  
+  if (!referralRewardSettings) {
+    throw new AppError(
+      httpStatus.NOT_FOUND,
+      'Referral reward settings not configured',
+    );
+  }
+
+  // Create or get Stripe coupon for this referral
+  let stripeCouponId = referral.stripeCouponId;
+  
+  if (!stripeCouponId) {
+    // Create a new Stripe coupon for this referral code
+    const coupon = await stripe.coupons.create({
+      amount_off: Math.round(referralRewardSettings.rewardAmount * 100), // Convert to cents
+      currency: 'usd',
+      duration: 'once',
+      name: `Referral Code: ${referralCode}`,
+      metadata: {
+        referralId: referral.id,
+        referralCode: referralCode,
+      },
+    });
+
+    stripeCouponId = coupon.id;
+
+    // Update referral with Stripe coupon ID
+    await prisma.referral.update({
+      where: { id: referral.id },
+      data: { stripeCouponId: coupon.id },
+    });
+  }
+
+  return {
+    referralId: referral.id,
+    referralCode: referral.referralCode,
+    discountAmount: referralRewardSettings.rewardAmount,
+    stripeCouponId: stripeCouponId,
+  };
 };
 
 // Helper function to get applicable pricing rules

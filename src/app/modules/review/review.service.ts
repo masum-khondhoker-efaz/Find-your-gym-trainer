@@ -493,6 +493,51 @@ const createSystemReviewIntoDb = async (userId: string, data: any) => {
   return review;
 };
 
+const createSystemReviewIntoDbForTrainer = async (userId: string, data: any) => {
+  // Trainers can provide feedback on the system after adding at least one product and sold at least one product
+  const { rating, comment } = data;
+  
+  // 1️⃣ Check if user already submitted a system review
+  const existingReview = await prisma.review.findFirst({
+    where: { userId, type: ReviewType.SYSTEM },
+  });
+  if (existingReview) {
+    throw new AppError(
+      httpStatus.CONFLICT,
+      'You have already reviewed the system',
+    );
+  }
+
+  // 2️⃣ Verify trainer has added at least one product and sold at least one product
+  const hasAddedProduct = await prisma.product.findFirst({
+    where: { userId },
+  });
+  const hasSoldProduct = await prisma.order.findFirst({
+    where: {
+      userId,
+      paymentStatus: PaymentStatus.COMPLETED,
+      status: OrderStatus.COMPLETED,
+    },
+  });
+  if (!hasAddedProduct || !hasSoldProduct) {
+    throw new AppError(
+      httpStatus.FORBIDDEN,
+      'You can only review the system after adding at least one product and selling at least one product',
+    );
+  }
+
+  // 3️⃣ Create review
+  const review = await prisma.review.create({
+    data: { userId, rating, comment, type: ReviewType.SYSTEM },
+  });
+  if (!review) {
+    throw new AppError(httpStatus.BAD_REQUEST, 'Review not created');
+  }
+
+  return review;
+};
+
+
 const getSystemReviewListFromDb = async (
   options: ISearchAndFilterOptions = {},
 ) => {
@@ -840,6 +885,7 @@ export const reviewService = {
 
   // System Reviews
   createSystemReviewIntoDb,
+  createSystemReviewIntoDbForTrainer,
   getSystemReviewListFromDb,
 
   // Trainer Replies

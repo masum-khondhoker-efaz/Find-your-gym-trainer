@@ -1,3 +1,4 @@
+import { appliedReferralController } from './../appliedReferral/appliedReferral.controller';
 import { User, UserStatus, UserRoleEnum } from '@prisma/client';
 import * as bcrypt from 'bcrypt';
 import httpStatus from 'http-status';
@@ -236,6 +237,7 @@ const getMyProfileFromDB = async (id: string) => {
       fitnessGoals: true,
       socialAccounts: {
         select: {
+          id: true,
           platformType: true,
           platformUrl: true,
         },
@@ -295,8 +297,25 @@ const getMyTrainerProfileFromDB = async (id: string) => {
               referralCode: true,
               // createdAt: true,
               // updatedAt: true,
+              appliedReferrals: {
+                select: {
+                  id: true,
+                  userId: true,
+                  referralId: true,
+                },
+              }
+            },
+          }, 
+        appliedReferrals: {
+          select: {
+            referral: {
+              select: {
+                id: true,
+                referralCode: true,
+              },
             },
           },
+        },
         },
       },
     },
@@ -320,7 +339,11 @@ const getMyTrainerProfileFromDB = async (id: string) => {
     })),
     organizationName: Profile.orgName,
     credentialNumber: Profile.credentialNo,
-    referrals: Profile.user.referrals,
+    referralCode: Profile.user.referrals[0]?.referralCode || null, // assuming one referral code per user
+    appliedReferralCode: Profile.user.appliedReferrals[0]?.referral.referralCode || null, // assuming one applied referral code per user
+    myReferralUsedCount: Profile.user.referrals.reduce((count, referral) => {
+      return count + referral.appliedReferrals.length;
+    }, 0),
   };
 };
 
