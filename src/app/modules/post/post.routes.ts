@@ -38,10 +38,16 @@ router.patch(
   multerUploadMultiple.single('post-media'),
   parseBody,
   auth(),
+  checkSubscriptionForTrainers(),
   validateRequest(postValidation.updateSchema),
   postController.updatePost,
 );
 
-router.delete('/:id', auth(), postController.deletePost);
+router.delete(
+  '/:id',
+  auth(),
+  checkSubscriptionForTrainers(),
+  postController.deletePost,
+);
 
 export const postRoutes = router;

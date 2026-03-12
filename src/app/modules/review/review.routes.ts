@@ -4,6 +4,7 @@ import validateRequest from '../../middlewares/validateRequest';
 import { reviewController } from './review.controller';
 import { reviewValidation } from './review.validation';
 import { UserRoleEnum } from '@prisma/client';
+import checkSubscriptionForTrainers from '../../middlewares/checkSubscriptionForSalonOwners';
 
 const router = express.Router();
 
@@ -33,8 +34,14 @@ router.get(
 router.post(
   '/system',
   auth(UserRoleEnum.MEMBER, UserRoleEnum.TRAINER),
+  checkSubscriptionForTrainers(),
   validateRequest(reviewValidation.createSystemReviewSchema),
   reviewController.createSystemReview,
+);
+
+router.get(
+  '/system-reviews',
+  reviewController.getSystemReviewListForWebsite,
 );
 
 router.get(
@@ -48,6 +55,7 @@ router.get(
 router.post(
   '/reply/:reviewId',
   auth(UserRoleEnum.TRAINER),
+  checkSubscriptionForTrainers(),
   validateRequest(reviewValidation.createTrainerReplySchema),
   reviewController.createTrainerReply,
 );
@@ -63,7 +71,8 @@ router.patch(
 
 router.delete(
   '/:id',
-  auth(UserRoleEnum.MEMBER, UserRoleEnum.SUPER_ADMIN, UserRoleEnum.ADMIN),
+  auth(UserRoleEnum.MEMBER, UserRoleEnum.SUPER_ADMIN, UserRoleEnum.ADMIN, UserRoleEnum.TRAINER),
+  checkSubscriptionForTrainers(),
   reviewController.deleteReview,
 );
 

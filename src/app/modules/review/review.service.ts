@@ -468,19 +468,19 @@ const createSystemReviewIntoDb = async (userId: string, data: any) => {
   }
 
   // 2️⃣ Verify user has made at least one purchase
-  const hasPurchased = await prisma.order.findFirst({
-    where: {
-      userId,
-      paymentStatus: PaymentStatus.COMPLETED,
-      status: OrderStatus.COMPLETED,
-    },
-  });
-  if (!hasPurchased) {
-    throw new AppError(
-      httpStatus.FORBIDDEN,
-      'You can only review the system after completing a purchase',
-    );
-  }
+  // const hasPurchased = await prisma.order.findFirst({
+  //   where: {
+  //     userId,
+  //     paymentStatus: PaymentStatus.COMPLETED,
+  //     status: OrderStatus.COMPLETED,
+  //   },
+  // });
+  // if (!hasPurchased) {
+  //   throw new AppError(
+  //     httpStatus.FORBIDDEN,
+  //     'You can only review the system after completing a purchase',
+  //   );
+  // }
 
   // 3️⃣ Create review
   const review = await prisma.review.create({
@@ -509,22 +509,22 @@ const createSystemReviewIntoDbForTrainer = async (userId: string, data: any) => 
   }
 
   // 2️⃣ Verify trainer has added at least one product and sold at least one product
-  const hasAddedProduct = await prisma.product.findFirst({
-    where: { userId },
-  });
-  const hasSoldProduct = await prisma.order.findFirst({
-    where: {
-      userId,
-      paymentStatus: PaymentStatus.COMPLETED,
-      status: OrderStatus.COMPLETED,
-    },
-  });
-  if (!hasAddedProduct || !hasSoldProduct) {
-    throw new AppError(
-      httpStatus.FORBIDDEN,
-      'You can only review the system after adding at least one product and selling at least one product',
-    );
-  }
+  // const hasAddedProduct = await prisma.product.findFirst({
+  //   where: { userId },
+  // });
+  // const hasSoldProduct = await prisma.order.findFirst({
+  //   where: {
+  //     userId,
+  //     paymentStatus: PaymentStatus.COMPLETED,
+  //     status: OrderStatus.COMPLETED,
+  //   },
+  // });
+  // if (!hasAddedProduct || !hasSoldProduct) {
+  //   throw new AppError(
+  //     httpStatus.FORBIDDEN,
+  //     'You can only review the system after adding at least one product and selling at least one product',
+  //   );
+  // }
 
   // 3️⃣ Create review
   const review = await prisma.review.create({
@@ -535,6 +535,56 @@ const createSystemReviewIntoDbForTrainer = async (userId: string, data: any) => 
   }
 
   return review;
+};
+
+const getSystemReviewListForWebsiteFromDb = async (
+  options: ISearchAndFilterOptions = {},
+) => {
+  // This endpoint is for website where we want to show all system reviews with pagination and rating >= 4
+  const normalizedOptions = {
+    ...options,
+    sortBy: options.sortBy || 'createdAt',
+    sortOrder: (options.sortOrder?.toLowerCase() === 'asc' ? 'asc' : 'desc') as 'asc' | 'desc',
+  };
+
+  // Pagination
+  const { page, limit, skip, sortBy, sortOrder } = calculatePagination(normalizedOptions);
+
+  // Build filter query - rating must be between 4-5
+  const filterFields: Record<string, any> = {
+    type: ReviewType.SYSTEM,
+    rating: { gte: 4, lte: 5 },
+  };
+  const filterQuery = buildFilterQuery(filterFields);
+
+  // Combine queries
+  const whereQuery = combineQueries({}, filterQuery, {});
+
+  // Fetch total count
+  const total = await prisma.review.count({ where: whereQuery });
+
+  // Sorting
+  const orderBy = getPaginationQuery(sortBy, sortOrder).orderBy;
+
+  // Fetch paginated reviews
+  const reviews = await prisma.review.findMany({
+    where: whereQuery,
+    skip,
+    take: limit,
+    orderBy,
+    include: {
+      user: {
+        select: {
+          role: true,
+          fullName: true,
+          email: true,
+          image: true,
+        },
+      },
+    },
+  });
+
+  return formatPaginationResponse(reviews, total, page, limit);
 };
 
 
@@ -886,6 +936,7 @@ export const reviewService = {
   // System Reviews
   createSystemReviewIntoDb,
   createSystemReviewIntoDbForTrainer,
+  getSystemReviewListForWebsiteFromDb,
   getSystemReviewListFromDb,
 
   // Trainer Replies

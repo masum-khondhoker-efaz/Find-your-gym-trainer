@@ -81,6 +81,19 @@ const createSystemReview = catchAsync(async (req, res) => {
   }
 });
 
+const getSystemReviewListForWebsite = catchAsync(async (req, res) => {
+  const result = await reviewService.getSystemReviewListForWebsiteFromDb(
+    req.query as ISearchAndFilterOptions,
+  );
+  sendResponse(res, {
+    statusCode: httpStatus.OK,
+    success: true,
+    message: 'System reviews retrieved successfully',
+    data: result.data,
+    meta: result.meta,
+  });
+});
+
 const getSystemReviewList = catchAsync(async (req, res) => {
   const result = await reviewService.getSystemReviewListFromDb(
     req.query as ISearchAndFilterOptions,
@@ -151,6 +164,7 @@ export const reviewController = {
 
   // System Reviews
   createSystemReview,
+  getSystemReviewListForWebsite,
   getSystemReviewList,
 
   // Trainer Replies

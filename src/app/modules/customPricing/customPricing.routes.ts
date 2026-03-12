@@ -4,6 +4,7 @@ import validateRequest from '../../middlewares/validateRequest';
 import { customPricingController } from './customPricing.controller';
 import { customPricingValidation } from './customPricing.validation';
 import { UserRoleEnum } from '@prisma/client';
+import checkSubscriptionForTrainers from '../../middlewares/checkSubscriptionForSalonOwners';
 
 const router = express.Router();
 
@@ -11,6 +12,7 @@ const router = express.Router();
 router.post(
   '/',
   auth(UserRoleEnum.TRAINER),
+  checkSubscriptionForTrainers(),
   validateRequest(customPricingValidation.createSchema),
   customPricingController.createCustomPricing,
 );
@@ -19,6 +21,7 @@ router.post(
 router.get(
   '/my-custom-pricings/:productId',
   auth(UserRoleEnum.TRAINER),
+  checkSubscriptionForTrainers(),
   customPricingController.getMyCustomPricings,
 );
 
@@ -26,6 +29,7 @@ router.get(
 router.get(
   '/my-products/:productId',
   auth(UserRoleEnum.TRAINER),
+  checkSubscriptionForTrainers(),
   customPricingController.getCustomPricingsByProduct,
 );
 
@@ -33,6 +37,7 @@ router.get(
 router.get(
   '/:id',
   auth(UserRoleEnum.TRAINER),
+  checkSubscriptionForTrainers(),
   customPricingController.getCustomPricingById,
 );
 
@@ -52,6 +57,7 @@ router.get(
 router.patch(
   '/:id',
   auth(UserRoleEnum.TRAINER),
+  checkSubscriptionForTrainers(),
   validateRequest(customPricingValidation.updateSchema),
   customPricingController.updateCustomPricing,
 );
@@ -60,6 +66,7 @@ router.patch(
 router.delete(
   '/:id',
   auth(UserRoleEnum.TRAINER),
+  checkSubscriptionForTrainers(),
   customPricingController.deleteCustomPricing,
 );
 

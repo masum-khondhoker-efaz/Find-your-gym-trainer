@@ -4,7 +4,7 @@ import auth from '../../middlewares/auth';
 import validateRequest from '../../middlewares/validateRequest';
 import { userSubscriptionController } from './userSubscription.controller';
 import { userSubscriptionValidation } from './userSubscription.validation';
-
+import checkSubscriptionForTrainers from '../../middlewares/checkSubscriptionForSalonOwners';
 
 const router = express.Router();
 
@@ -34,11 +34,10 @@ router.get(
   userSubscriptionController.getPaymentMethodFromSession,
 );
 
-
 router.get(
   '/own-plan',
   auth(UserRoleEnum.TRAINER),
-  userSubscriptionController.getUOwnerSubscriptionPlan,
+  userSubscriptionController.getOwnSubscriptionPlan,
 );
 
 router.get(
@@ -48,7 +47,7 @@ router.get(
 );
 
 router.put(
-  '/:id',
+  '/renew-plan/:id',
   auth(UserRoleEnum.TRAINER),
   validateRequest(userSubscriptionValidation.updateSchema),
   userSubscriptionController.updateUserSubscription,
@@ -57,6 +56,7 @@ router.put(
 router.patch(
   '/cancel-automatic-renewal/:id',
   auth(UserRoleEnum.TRAINER),
+  checkSubscriptionForTrainers(),
   userSubscriptionController.cancelAutomaticRenewal,
 );
 

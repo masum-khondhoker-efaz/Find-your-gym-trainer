@@ -31,7 +31,7 @@ const createCheckoutSession = catchAsync(async (req, res) => {
   });
 });
 
-const getUOwnerSubscriptionPlan = catchAsync(async (req, res) => {
+const getOwnSubscriptionPlan = catchAsync(async (req, res) => {
   const user = req.user as any;
   const result = await userSubscriptionService.getTrainerSubscriptionPlanFromDb(
     user.id,
@@ -39,7 +39,7 @@ const getUOwnerSubscriptionPlan = catchAsync(async (req, res) => {
   sendResponse(res, {
     statusCode: httpStatus.OK,
     success: true,
-    message: 'Owner Subscription Plan retrieved successfully',
+    message: 'Trainer Subscription Plan retrieved successfully',
     data: result,
   });
 });
@@ -110,25 +110,24 @@ const deleteUserSubscription = catchAsync(async (req, res) => {
     statusCode: httpStatus.OK,
     success: true,
     message: 'UserSubscription deleted successfully',
-    data: result, 
+    data: result,
   });
 });
 
-
 const deleteUserSubscriptionForCustomer = catchAsync(async (req, res) => {
   const user = req.user as any;
-  const result = await userSubscriptionService.deleteCustomerSubscriptionItemFromDb(
-    user.id,
-    req.params.id,
-  );
+  const result =
+    await userSubscriptionService.deleteCustomerSubscriptionItemFromDb(
+      user.id,
+      req.params.id,
+    );
   sendResponse(res, {
     statusCode: httpStatus.OK,
     success: true,
     message: 'UserSubscription deleted successfully',
-    data: result, 
+    data: result,
   });
 });
-
 
 const getPaymentMethodFromSession = catchAsync(async (req, res) => {
   const result = await userSubscriptionService.getPaymentMethodFromSession(
@@ -147,7 +146,7 @@ export const userSubscriptionController = {
   createCheckoutSession,
   getPaymentMethodFromSession,
   getUserSubscriptionList,
-  getUOwnerSubscriptionPlan,
+  getOwnSubscriptionPlan,
   getUserSubscriptionById,
   updateUserSubscription,
   cancelAutomaticRenewal,

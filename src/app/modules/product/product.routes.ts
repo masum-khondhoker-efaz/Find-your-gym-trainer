@@ -6,6 +6,7 @@ import { productValidation } from './product.validation';
 import { UserRoleEnum } from '@prisma/client';
 import { multerUploadMultiple } from '../../utils/multipleFile';
 import { parseBody } from '../../middlewares/parseBody';
+import checkSubscriptionForTrainers from '../../middlewares/checkSubscriptionForSalonOwners';
 
 const router = express.Router();
 
@@ -14,6 +15,7 @@ router.post(
   multerUploadMultiple.any(),
   parseBody,
   auth(UserRoleEnum.TRAINER),
+  checkSubscriptionForTrainers(),
   validateRequest(productValidation.createSchema),
   productController.createProduct,
 );
@@ -28,6 +30,7 @@ router.get(
 router.get(
   '/my-products',
   auth(UserRoleEnum.TRAINER),
+  checkSubscriptionForTrainers(),
   productController.getMyProducts,
 );
 
@@ -35,6 +38,7 @@ router.get(
 router.get(
   '/my-products/:id',
   auth(UserRoleEnum.TRAINER),
+  checkSubscriptionForTrainers(),
   productController.getProductById,
 );
 
@@ -45,6 +49,7 @@ router.patch(
   multerUploadMultiple.any(),
   parseBody,
   auth(UserRoleEnum.TRAINER),
+  checkSubscriptionForTrainers(),
   validateRequest(productValidation.updateSchema),
   productController.updateProduct,
 );
@@ -52,6 +57,7 @@ router.patch(
 router.delete(
   '/:id',
   auth(UserRoleEnum.TRAINER),
+  checkSubscriptionForTrainers(),
   productController.deleteProduct,
 );
 

@@ -381,6 +381,7 @@ const getTrainerSubscriptionPlanFromDb = async (userId: string) => {
           id: true,
           startDate: true,
           endDate: true,
+          stripeSubscriptionId: true,
           subscriptionOffer: {
             select: {
               id: true,
@@ -391,23 +392,34 @@ const getTrainerSubscriptionPlanFromDb = async (userId: string) => {
             },
           },
         },
-        where: { paymentStatus: PaymentStatus.COMPLETED },
+        where: { paymentStatus: { in: [PaymentStatus.COMPLETED, PaymentStatus.CANCELLED, PaymentStatus.REFUNDED, PaymentStatus.EXPIRED] } },
       },
     },
   });
   if (!user) {
     throw new AppError(httpStatus.NOT_FOUND, 'User not found');
   }
-  const subscription = user.userSubscriptions[0];
+
+  console.log('User subscription data:', user.userSubscriptions);
+  
+  // Check if user's stripeSubscriptionId exists in any of their subscriptions
+  if (user.stripeSubscriptionId && !user.userSubscriptions.some(
+    sub => sub.stripeSubscriptionId === user.stripeSubscriptionId,
+  )) {
+    throw new AppError(httpStatus.BAD_REQUEST, 'Subscription data mismatch');
+  }
+
   return {
+    userSubscriptionId: user.userSubscriptions[0]?.id,
+    subscriptionId: user.userSubscriptions[0]?.subscriptionOffer?.id,
     subscriptionPlan: user.subscriptionPlan,
     isSubscribed: user.isSubscribed,
-    subscriptionStart: subscription?.startDate,
+    subscriptionStart: user.userSubscriptions[0]?.startDate,
     subscriptionEnd: user.subscriptionEnd,
     stripeSubscriptionId: user.stripeSubscriptionId,
-    duration: subscription?.subscriptionOffer?.duration,
-    price: subscription?.subscriptionOffer?.price,
-    description: subscription?.subscriptionOffer?.description,
+    duration: user.userSubscriptions[0]?.subscriptionOffer?.duration,
+    price: user.userSubscriptions[0]?.subscriptionOffer?.price,
+    description: user.userSubscriptions[0]?.subscriptionOffer?.description,
   };
 };
 
@@ -451,16 +463,16 @@ const updateUserSubscriptionIntoDb = async (
   userId: string,
   userSubscriptionId: string,
   data: {
-    paymentMethodId: string;
     subscriptionOfferId: string;
+    // pricingRuleId?: string; // Optional pricing rule
+    // referralCode?: string; // Optional referral code for discount
   },
 ) => {
-  // Step 1: find user subscription (outside transaction)
+  // Step 1: Find existing user subscription
   const existing = await prisma.userSubscription.findFirst({
     where: {
       id: userSubscriptionId,
       userId,
-      // Remove the endDate filter to find both active and expired
     },
   });
 
@@ -468,144 +480,197 @@ const updateUserSubscriptionIntoDb = async (
     throw new AppError(httpStatus.NOT_FOUND, 'Subscription not found');
   }
 
-  // Optional: Add business logic if you only want to allow renewing near expiration
-  if (existing.endDate > new Date()) {
+  // Check if subscription is cancelled or expired (allow renewal)
+  const now = new Date();
+  const isCancelled = existing.paymentStatus === PaymentStatus.CANCELLED;
+  const isExpired = existing.endDate <= now;
+
+  if (!isCancelled && !isExpired) {
     throw new AppError(
       httpStatus.BAD_REQUEST,
-      'Subscription is still active, cannot renew yet',
+      'Subscription is still active. Please cancel first or wait until expiration.',
     );
   }
 
-  // Step 2: find user (outside transaction)
+  // Step 2: Verify user exists
   const user = await prisma.user.findUnique({
-    where: {
-      id: userId,
+    where: { id: userId },
+    include: {
+      trainers: true,
+      userSubscriptions: true
     },
   });
+
   if (!user) {
     throw new AppError(httpStatus.NOT_FOUND, 'User not found');
   }
-  if (!user.stripeCustomerId) {
-    throw new AppError(httpStatus.BAD_REQUEST, 'Stripe customer not found');
+  if(!user.userSubscriptions || user.userSubscriptions.length === 0) {
+    throw new AppError(httpStatus.BAD_REQUEST, 'No existing subscription found for user');
   }
+   // Check if user's stripeSubscriptionId exists in any of their subscriptions
+  if (user.stripeSubscriptionId && !user.userSubscriptions.some(
+    sub => sub.stripeSubscriptionId === user.stripeSubscriptionId,
+  )) {
+    throw new AppError(httpStatus.BAD_REQUEST, 'Subscription data mismatch');
+  }
+  // get the exact subscription that matches the userSubscriptionId
+  const subscription = user.userSubscriptions.find(sub => sub.id === userSubscriptionId);
 
-  // Step 3: find subscription offer (outside transaction)
+  // Step 3: Get subscription offer
   const subscriptionOffer = await prisma.subscriptionOffer.findUnique({
-    where: { id: data.subscriptionOfferId },
-    include: {
-      creator: {
-        select: {
-          stripeCustomerId: true,
-        },
-      },
-    },
+    where: { id:subscription?.subscriptionOfferId! },
   });
-  if (!subscriptionOffer?.stripePriceId) {
+
+  if (!subscriptionOffer || !subscriptionOffer.stripePriceId) {
     throw new AppError(
-      httpStatus.BAD_REQUEST,
-      'Subscription offer or price not found',
+      httpStatus.NOT_FOUND,
+      'Subscription offer not found or missing Stripe price',
     );
   }
 
-  // Step 4: Handle payment method (outside transaction)
-  try {
-    await stripe.paymentMethods.attach(data.paymentMethodId, {
-      customer: user.stripeCustomerId,
+  // Step 4: Create or get Stripe customer
+  let stripeCustomerId = user.stripeCustomerId;
+  if (!stripeCustomerId) {
+    const customer = await stripe.customers.create({
+      email: user.email,
+      name: user.fullName,
+      metadata: { userId: user.id },
     });
-  } catch (err: any) {
-    if (err.code !== 'resource_already_attached') throw err;
+    stripeCustomerId = customer.id;
+
+    await prisma.user.update({
+      where: { id: userId },
+      data: { stripeCustomerId: customer.id },
+    });
   }
 
-  // Set default payment method
-  await stripe.customers.update(user.stripeCustomerId, {
-    invoice_settings: { default_payment_method: data.paymentMethodId },
-  });
+  // Step 5: Check for referral code discount first (takes priority)
+  let referralDiscount = null;
+  let stripeCouponId: string | undefined = undefined;
+  let discountAmount = 0;
 
-  // Step 5: renew subscription in Stripe (outside transaction)
-  const subscription = await stripe.subscriptions.create({
-    customer: user.stripeCustomerId,
-    items: [{ price: subscriptionOffer.stripePriceId }],
-    default_payment_method: data.paymentMethodId,
-    expand: ['latest_invoice.payment_intent'],
-  });
+  // if (data.referralCode) {
+  //   try {
+  //     referralDiscount = await processReferralCodeDiscount(
+  //       userId,
+  //       data.referralCode,
+  //     );
+  //     stripeCouponId = referralDiscount.stripeCouponId;
+  //     discountAmount = referralDiscount.discountAmount;
+  //   } catch (error) {
+  //     throw error;
+  //   }
+  // }
 
-  if (!subscription) {
-    throw new AppError(httpStatus.BAD_REQUEST, 'Subscription not created');
-  }
+  // Step 6: Check for applicable pricing rules (only if no referral code applied)
+  // let applicablePricingRule = null;
 
-  // IMPORTANT: Subscription may start as `incomplete` until invoice is paid
-  const latestInvoice = subscription.latest_invoice as any;
-  const paymentIntent = latestInvoice?.payment_intent;
-  if (
-    subscription.status === 'incomplete' &&
-    paymentIntent?.status !== 'succeeded'
-  ) {
-    throw new AppError(httpStatus.BAD_REQUEST, 'Subscription payment failed');
-  }
+  // if (!referralDiscount && data.pricingRuleId) {
+  //   applicablePricingRule = await prisma.subscriptionPricingRule.findUnique({
+  //     where: { id: data.pricingRuleId },
+  //     include: {
+  //       subscriptionPricingRuleTrainers: true,
+  //     },
+  //   });
 
-  // Type assertion for subscription dates
-  const subscriptionWithPeriod =
-    subscription as unknown as Stripe.Subscription & {
-      current_period_start: number;
-      current_period_end: number;
-    };
+  //   if (!applicablePricingRule || !applicablePricingRule.isActive) {
+  //     throw new AppError(
+  //       httpStatus.BAD_REQUEST,
+  //       'Selected pricing rule is not valid or inactive',
+  //     );
+  //   }
 
-  // Step 6: ONLY database operations inside transaction
-  const result = await prisma.$transaction(
-    async tx => {
-      // Convert Stripe Unix timestamps to JavaScript Date objects
-      const startDate = subscriptionWithPeriod.current_period_start
-        ? new Date(subscriptionWithPeriod.current_period_start * 1000)
-        : new Date();
+  //   await validatePricingRuleEligibility(
+  //     userId,
+  //     applicablePricingRule,
+  //     user.trainers?.[0]?.userId,
+  //   );
 
-      const endDate = subscriptionWithPeriod.current_period_end
-        ? new Date(subscriptionWithPeriod.current_period_end * 1000)
-        : new Date(startDate.getTime() + 30 * 24 * 60 * 60 * 1000);
+  //   stripeCouponId = applicablePricingRule.stripeCouponId || undefined;
+  // } else if (user.trainers && user.trainers.length > 0 && !referralDiscount) {
+  //   const applicableRules = await getApplicablePricingRulesForUser(
+  //     userId,
+  //     data.subscriptionOfferId,
+  //     user.trainers[0].userId,
+  //   );
 
-      // Update user subscription in DB
-      const updatedSubscription = await tx.userSubscription.update({
-        where: { id: userSubscriptionId },
-        data: {
-          subscriptionOfferId: data.subscriptionOfferId,
-          startDate: startDate,
-          endDate: endDate,
-          stripeSubscriptionId: subscription.id,
-          paymentStatus: PaymentStatus.COMPLETED,
-        },
-      });
+  //   if (applicableRules.length > 0) {
+  //     applicablePricingRule = applicableRules[0];
+  //     stripeCouponId = applicablePricingRule.stripeCouponId || undefined;
+  //     discountAmount = applicablePricingRule.discountAmount || 0;
+  //   }
+  // }
 
-      // Record payment
-      await tx.payment.create({
-        data: {
-          userId: userId,
-          stripeSubscriptionId: subscription.id,
-          paymentAmount: subscriptionOffer.price,
-          amountProvider: user.stripeCustomerId!,
-          status: PaymentStatus.COMPLETED,
-        },
-      });
-
-      // Update user status
-      await tx.user.update({
-        where: { id: userId },
-        data: {
-          isSubscribed: true,
-          subscriptionEnd: endDate,
-        },
-      });
-
-      return {
-        ...updatedSubscription,
-        subscriptionId: subscription.id,
-        paymentIntentId: paymentIntent?.id,
-      };
+  // Step 7: Create checkout session for renewal
+  const sessionConfig: Stripe.Checkout.SessionCreateParams = {
+    customer: stripeCustomerId,
+    payment_method_types: ['card'],
+    line_items: [
+      {
+        price: subscriptionOffer.stripePriceId,
+        quantity: 1,
+      },
+    ],
+    mode: 'subscription',
+    success_url: `${config.frontend_base_url}/payment-success?session_id={CHECKOUT_SESSION_ID}`,
+    cancel_url: `${config.frontend_base_url}/payment-cancel`,
+    metadata: {
+      userId: userId,
+      subscriptionOfferId: data.subscriptionOfferId,
+      userSubscriptionId: userSubscriptionId, // Track which subscription to update
+      isRenewal: 'true', // Flag to indicate this is a renewal
+      // pricingRuleId: applicablePricingRule?.id || '',
+      // referralId: referralDiscount?.referralId || '',
+      // referralCode: referralDiscount?.referralCode || '',
     },
-    {
-      timeout: 10000, // Optional: Increase timeout if needed
+    subscription_data: {
+      metadata: {
+        userId: userId,
+        subscriptionOfferId: data.subscriptionOfferId,
+        userSubscriptionId: userSubscriptionId,
+        isRenewal: 'true',
+        // pricingRuleId: applicablePricingRule?.id || '',
+        // referralId: referralDiscount?.referralId || '',
+        // referralCode: referralDiscount?.referralCode || '',
+      },
     },
-  );
+  };
 
-  return result;
+  // Apply coupon if available
+  if (stripeCouponId) {
+    sessionConfig.discounts = [
+      {
+        coupon: stripeCouponId,
+      },
+    ];
+  }
+
+  const session = await stripe.checkout.sessions.create(sessionConfig);
+
+  return {
+    sessionId: session.id,
+    url: session.url,
+    message: 'Checkout session created for subscription renewal',
+    // appliedDiscount: referralDiscount
+    //   ? {
+    //       type: 'referral',
+    //       code: referralDiscount.referralCode,
+    //       discountAmount: referralDiscount.discountAmount,
+    //       originalPrice: subscriptionOffer.price,
+    //       discountedPrice: subscriptionOffer.price - referralDiscount.discountAmount,
+    //     }
+    //   : applicablePricingRule
+    //   ? {
+    //       type: 'pricing_rule',
+    //       name: applicablePricingRule.name,
+    //       discountAmount: applicablePricingRule.discountAmount,
+    //       originalPrice: subscriptionOffer.price,
+    //       discountedPrice: applicablePricingRule.discountAmount
+    //         ? subscriptionOffer.price - applicablePricingRule.discountAmount
+    //         : subscriptionOffer.price,
+    //     }
+    //   : null,
+  };
 };
 
 const cancelAutomaticRenewalIntoDb = async (

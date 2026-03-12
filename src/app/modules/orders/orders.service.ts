@@ -145,6 +145,10 @@ const createOrdersIntoDb = async (
     const isSubscription = product.invoiceFrequency !== 'ONE_TIME';
     let session;
     let nextBillingDate = null;
+    const imageUrl =
+  product.productImage && product.productImage.startsWith("http")
+    ? [encodeURI(product.productImage)]
+    : [];
 
     if (isSubscription) {
       // Create recurring subscription
@@ -161,6 +165,7 @@ const createOrdersIntoDb = async (
       } else {
         nextBillingDate.setFullYear(nextBillingDate.getFullYear() + 1);
       }
+      
 
       session = await stripe.checkout.sessions.create({
         mode: 'subscription',
@@ -172,7 +177,7 @@ const createOrdersIntoDb = async (
               product_data: {
                 name: product.productName,
                 description: `${product.durationWeeks} weeks program - ${product.invoiceFrequency} billing`,
-                images: product.productImage ? [product.productImage] : [],
+                images: imageUrl,
               },
               unit_amount: Math.round(finalPrice * 100),
               recurring: {
@@ -215,7 +220,7 @@ const createOrdersIntoDb = async (
               product_data: {
                 name: product.productName,
                 description: `${product.durationWeeks} weeks program - One-time payment`,
-                images: product.productImage ? [product.productImage] : [],
+                images: imageUrl,
               },
               unit_amount: Math.round(finalPrice * 100),
             },

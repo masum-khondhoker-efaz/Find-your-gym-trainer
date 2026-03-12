@@ -37,6 +37,7 @@ import { newsletterSubscriberRoutes } from '../modules/newsletterSubscriber/news
 import { supportRoutes } from '../modules/support/support.routes';
 import { path } from 'pdfkit';
 import { ordersRoutes } from '../modules/orders/orders.routes';
+import { disclaimerRoutes } from '../modules/disclaimer/disclaimer.routes';
 // import { PaymentRoutes } from '../modules/payment/payment.routes';
 // import { orderRoutes } from '../modules/order/order.routes';
 
@@ -119,6 +120,10 @@ const moduleRoutes = [
   {
     path: '/contact-us-info',
     route: contactUsInfoRoutes,
+  },
+  {
+    path: '/disclaimer',
+    route: disclaimerRoutes,
   },
   {
     path: '/newsletter-subscriber',

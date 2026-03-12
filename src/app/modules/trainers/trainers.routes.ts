@@ -4,6 +4,7 @@ import validateRequest from '../../middlewares/validateRequest';
 import { trainersController } from './trainers.controller';
 import { trainersValidation } from './trainers.validation';
 import { UserRoleEnum } from '@prisma/client';
+import checkSubscriptionForTrainers from '../../middlewares/checkSubscriptionForSalonOwners';
 
 const router = express.Router();
 
@@ -23,18 +24,21 @@ router.get(
 router.get(
   '/earnings',
   auth(UserRoleEnum.TRAINER),
+  checkSubscriptionForTrainers(),
   trainersController.getTrainerEarnings,
 );
 
 router.get(
   '/recent-transactions',
   auth(UserRoleEnum.TRAINER),
+  checkSubscriptionForTrainers(),
   trainersController.getTrainerRecentTransactions,
 );
 
 router.get(
   '/dashboard',
   auth(UserRoleEnum.TRAINER),
+  checkSubscriptionForTrainers(),
   trainersController.getTrainerDashboard,
 );
 
