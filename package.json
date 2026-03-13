@@ -40,6 +40,7 @@
   "dependencies": {
     "@aws-sdk/client-s3": "^3.732.0",
     "@prisma/client": "^6.19.2",
+    "axios": "^1.13.6",
     "bcrypt": "^5.1.1",
     "cloudinary": "^1.30.0",
     "cookie-parser": "^1.4.7",

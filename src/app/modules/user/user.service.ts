@@ -242,8 +242,20 @@ const getMyProfileFromDB = async (id: string) => {
           platformUrl: true,
         },
       },
-      gymName: true,
-      gymId: true,
+      // trainers: {
+      //   select: {
+      //     gymId: true,
+      //     gym: {
+      //       select: {
+      //         id: true,
+      //         gymName: true,
+      //         googlePlaceId: true,
+      //         latitude: true,
+      //         longitude: true,
+      //       },
+      //     },
+      //   },
+      // },
       // isProfileComplete: true,
       createdAt: true,
       updatedAt: true,
@@ -253,7 +265,13 @@ const getMyProfileFromDB = async (id: string) => {
     throw new AppError(httpStatus.NOT_FOUND, 'Profile not found');
   }
 
-  return Profile;
+  // const trainerProfile = Profile.trainers[0];
+
+  return {
+    ...Profile,
+    // gymId: trainerProfile?.gymId || null,
+    // gym: trainerProfile?.gym || null,
+  };
 };
 
 const getMyTrainerProfileFromDB = async (id: string) => {
@@ -318,6 +336,16 @@ const getMyTrainerProfileFromDB = async (id: string) => {
         },
         },
       },
+      gym: {
+        select: {
+          id: true,
+          gymName: true,
+          gymAddress: true,
+          googlePlaceId: true,
+          latitude: true,
+          longitude: true,
+        },
+      },
     },
   });
   if (!Profile) {
@@ -340,6 +368,11 @@ const getMyTrainerProfileFromDB = async (id: string) => {
     organizationName: Profile.orgName,
     credentialNumber: Profile.credentialNo,
     referralCode: Profile.user.referrals[0]?.referralCode || null, // assuming one referral code per user
+    gymName: Profile.gym?.gymName || null,
+    gymAddress: Profile.gym?.gymAddress || null,
+    googlePlaceId: Profile.gym?.googlePlaceId || null,
+    latitude: Profile.gym?.latitude || null,
+    longitude: Profile.gym?.longitude || null,
     appliedReferralCode: Profile.user.appliedReferrals[0]?.referral.referralCode || null, // assuming one applied referral code per user
     myReferralUsedCount: Profile.user.referrals.reduce((count, referral) => {
       return count + referral.appliedReferrals.length;
@@ -427,6 +460,11 @@ const updateTrainerProfileIntoDB = async (
     trainerServiceType?: string[];
     orgName?: string;
     credentialNo?: string;
+    gymName?: string;
+    gymAddress?: string;
+    googlePlaceId?: string;
+    latitude?: number;
+    longitude?: number;
   },
   fileUrl: {
     certifications?: string[];
@@ -461,8 +499,50 @@ const updateTrainerProfileIntoDB = async (
     }),
   };
 
+  const hasGymName = payload.gymName !== undefined;
+  const hasGymAddress = payload.gymAddress !== undefined;
+  const hasGooglePlaceId = payload.googlePlaceId !== undefined;
+  const hasLatitude = payload.latitude !== undefined;
+  const hasLongitude = payload.longitude !== undefined;
+
+  const hasAnyGymField =
+    hasGymName || hasGymAddress || hasGooglePlaceId || hasLatitude || hasLongitude;
+  const hasAllGymFields =
+    hasGymName && hasGymAddress && hasGooglePlaceId && hasLatitude && hasLongitude;
+
+  if (hasAnyGymField && !hasAllGymFields) {
+    throw new AppError(
+      httpStatus.BAD_REQUEST,
+      'gymName, gymAddress, googlePlaceId, latitude, and longitude must all be provided together.',
+    );
+  }
+
+  
+
   // 3️⃣ Transaction for consistency
   const result = await prisma.$transaction(async tx => {
+    if (hasAllGymFields) {
+      const existingGym = await tx.gym.findUnique({
+        where: {
+          googlePlaceId: payload.googlePlaceId!,
+        },
+      });
+
+      const gym =
+        existingGym ||
+        (await tx.gym.create({
+          data: {
+            gymName: payload.gymName!,
+            gymAddress: payload.gymAddress!,
+            googlePlaceId: payload.googlePlaceId!,
+            latitude: payload.latitude!,
+            longitude: payload.longitude!,
+          },
+        }));
+
+      updateData.gymId = gym.id;
+    }
+
     // Update trainer profile
     const updatedTrainer = await tx.trainer.update({
       where: { userId: existingTrainer.userId },

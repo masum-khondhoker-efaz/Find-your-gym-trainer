@@ -21,8 +21,6 @@ model User {
   longitude                  Float?
   isLoggedIn                 Boolean                 @default(false)
   bio                        String?
-  gymId                      String?
-  gymName                    String?
   fitnessGoals               String[]
   image                      String?
   phoneNumber                String?
@@ -116,6 +114,7 @@ model Trainer {
   certifications  String[]
   orgName         String?
   credentialNo    String?
+  gymId           String?  @db.ObjectId
   experienceYears Int
   totalReferrals  Int      @default(0)
   views           Int      @default(0)
@@ -133,6 +132,7 @@ model Trainer {
   subscriptionPricingRuleTrainers SubscriptionPricingRuleTrainer[]
   orders                          Order[]
   trainerReplies                  TrainerReply[]
+  gym                             Gym?                              @relation(fields: [gymId], references: [id])
 
   @@map("trainers")
 }
@@ -312,12 +312,32 @@ model Share {
   @@map("shares")
 }
 
+model Gym {
+  id            String   @id @default(auto()) @map("_id") @db.ObjectId
+  gymName       String
+  gymAddress    String
+  latitude      Float
+  longitude     Float
+  googlePlaceId String   @unique
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  // Relationships
+  trainers Trainer[]
+
+  @@map("gyms")
+}
+
 model FavoriteGyms {
-  id        String   @id @default(auto()) @map("_id") @db.ObjectId
-  userId    String   @db.ObjectId
-  gymName   String
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  id            String   @id @default(auto()) @map("_id") @db.ObjectId
+  userId        String   @db.ObjectId
+  gymName       String
+  gymAddress    String
+  latitude      Float
+  longitude     Float
+  googlePlaceId String   @unique
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
 
   user User @relation(fields: [userId], references: [id])
 
@@ -369,37 +389,6 @@ model Category {
 
   @@map("categories")
 }
-
-// model Product {
-//   id              String   @id @default(auto()) @map("_id") @db.ObjectId
-//   userId          String   @db.ObjectId
-//   productName     String
-//   productImage    String
-//   productVideo    String?
-//   week            Int
-//   maxDiscountUser Int?
-//   agreement       String?
-//   pdf             String?
-//   isActive        Boolean  @default(false)
-//   price           Float
-//   capacity        Int?
-//   discount        Float    @default(0)
-//   ratingCount     Int      @default(0)
-//   avgRating       Float    @default(0)
-//   totalPurchased  Int      @default(0)
-//   views           Int      @default(0)
-//   description     String?
-//   createdAt       DateTime @default(now())
-//   updatedAt       DateTime @updatedAt
-
-//   // Relationships
-//   user             User              @relation(fields: [userId], references: [id])
-//   reviews          Review[]
-//   favoriteProducts FavoriteProduct[]
-//   orders           Order[]
-
-//   @@map("products")
-// }
 
 model Product {
   id     String @id @default(auto()) @map("_id") @db.ObjectId

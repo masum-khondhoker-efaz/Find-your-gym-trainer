@@ -26,6 +26,7 @@ import { customPricingRoutes } from '../modules/customPricing/customPricing.rout
 import { trainersRoutes } from '../modules/trainers/trainers.routes';
 import { favoriteTrainerRoutes } from '../modules/favoriteTrainer/favoriteTrainer.routes';
 import { favoriteProductRoutes } from '../modules/favoriteProduct/favoriteProduct.routes';
+import { favoriteGymRoutes } from '../modules/favoriteGym/favoriteGym.routes';
 import { subscriptionOfferRoutes } from '../modules/subscriptionOffer/subscriptionOffer.routes';
 import { userSubscriptionRoutes } from '../modules/userSubscription/userSubscription.routes';
 import { referralRoutes } from '../modules/referral/referral.routes';
@@ -35,7 +36,7 @@ import { subscriptionPricingRuleRoutes } from '../modules/subscriptionPricingRul
 import { contactUsInfoRoutes } from '../modules/contactUsInfo/contactUsInfo.routes';
 import { newsletterSubscriberRoutes } from '../modules/newsletterSubscriber/newsletterSubscriber.routes';
 import { supportRoutes } from '../modules/support/support.routes';
-import { path } from 'pdfkit';
+import { gymRoutes } from '../modules/gym/gym.routes';
 import { ordersRoutes } from '../modules/orders/orders.routes';
 import { disclaimerRoutes } from '../modules/disclaimer/disclaimer.routes';
 // import { PaymentRoutes } from '../modules/payment/payment.routes';
@@ -112,6 +113,10 @@ const moduleRoutes = [
     path: '/favorite-trainers',
     route: favoriteTrainerRoutes,
   },
+  {
+    path: '/favorite-gyms',
+    route: favoriteGymRoutes,
+  },
 
   {
     path: '/founding-teams',
@@ -132,6 +137,10 @@ const moduleRoutes = [
   {
     path: '/support',
     route: supportRoutes,
+  },
+  {
+    path: '/gyms',
+    route: gymRoutes,
   },
   // {
   //   path: '/payments',
@@ -196,5 +205,6 @@ const moduleRoutes = [
 ];
 
 moduleRoutes.forEach(route => router.use(route.path, route.route));
+
 
 export default router;

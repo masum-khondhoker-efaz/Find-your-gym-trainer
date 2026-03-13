@@ -44,38 +44,87 @@ const trainerRegisterUser = z.object({
 });
 
 const updateTrainerProfileSchema = z.object({
-  body: z.object({
-    trainerSpecialty: z
-      .array(
-        z.string({
-          required_error: 'Trainer specialty is required!',
-        }),
-      )
-      .optional(),
-    experienceYears: z
-      .string({
-        required_error: 'Experience years is required!',
-      })
-      .transform(val => Number(val))
-      .optional(),
-    trainerServiceType: z
-      .array(
-        z.string({
-          required_error: 'Service type is required!',
-        }),
-      )
-      .optional(),
-    orgName: z
-      .string({
-        required_error: 'Organization name is required!',
-      })
-      .optional(),
-    credentialNo: z
-      .string({
-        required_error: 'Credential number is required!',
-      })
-      .optional(),
-  }),
+  body: z
+    .object({
+      trainerSpecialty: z
+        .array(
+          z.string({
+            required_error: 'Trainer specialty is required!',
+          }),
+        )
+        .optional(),
+      experienceYears: z
+        .string({
+          required_error: 'Experience years is required!',
+        })
+        .transform(val => Number(val))
+        .optional(),
+      trainerServiceType: z
+        .array(
+          z.string({
+            required_error: 'Service type is required!',
+          }),
+        )
+        .optional(),
+      orgName: z
+        .string({
+          required_error: 'Organization name is required!',
+        })
+        .optional(),
+      credentialNo: z
+        .string({
+          required_error: 'Credential number is required!',
+        })
+        .optional(),
+      gymName: z
+        .string({
+          required_error: 'Gym name is required!',
+        })
+        .optional(),
+      gymAddress: z
+        .string({
+          required_error: 'Gym address is required!',
+        })
+        .optional(),
+      googlePlaceId: z
+        .string({
+          required_error: 'Gym ID is required!',
+        })
+        .optional(),
+      latitude: z
+        .string({
+          required_error: 'Latitude is required!',
+        })
+        .transform(val => Number(val))
+        .optional(),
+      longitude: z
+        .string({
+          required_error: 'Longitude is required!',
+        })
+        .transform(val => Number(val))
+        .optional(),
+    })
+    .superRefine((data, ctx) => {
+      const hasGymName = data.gymName !== undefined;
+      const hasGymAddress = data.gymAddress !== undefined;
+      const hasGooglePlaceId = data.googlePlaceId !== undefined;
+      const hasLatitude = data.latitude !== undefined;
+      const hasLongitude = data.longitude !== undefined;
+
+      const hasAnyGymField =
+        hasGymName || hasGymAddress || hasGooglePlaceId || hasLatitude || hasLongitude;
+      const hasAllGymFields =
+        hasGymName && hasGymAddress && hasGooglePlaceId && hasLatitude && hasLongitude;
+
+      if (hasAnyGymField && !hasAllGymFields) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message:
+            'gymName, gymAddress, googlePlaceId, latitude, and longitude must all be provided together.',
+          path: ['gymName'],
+        });
+      }
+    }),
 });
 
 const updateProfileSchema = z.object({

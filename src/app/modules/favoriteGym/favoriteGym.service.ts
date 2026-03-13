@@ -1,86 +1,134 @@
 import prisma from '../../utils/prisma';
-import { UserRoleEnum, UserStatus } from '@prisma/client';
 import AppError from '../../errors/AppError';
 import httpStatus from 'http-status';
+import { ISearchAndFilterOptions } from '../../interface/pagination.type';
+import {
+  calculatePagination,
+  formatPaginationResponse,
+  getPaginationQuery,
+} from '../../utils/pagination';
 
-
-const createFavoriteGymIntoDb = async (userId: string, data: any) => {
-  
-    const result = await prisma.favoriteGyms.create({ 
-    data: {
-      ...data,
-      userId: userId,
-    },
-  });
-  if (!result) {
-    throw new AppError(httpStatus.BAD_REQUEST, 'favoriteGym not created');
-  }
-    return result;
+type FavoriteGymPayload = {
+  gymName: string;
+  gymAddress: string;
+  latitude: number;
+  longitude: number;
+  googlePlaceId: string;
 };
 
-const getFavoriteGymListFromDb = async (userId: string) => {
-  
-    const result = await prisma.favoriteGyms.findMany({
-      where: {
-        userId: userId,
-      },
-    });
-    if (result.length === 0) {
-    return { message: 'No favoriteGym found' };
-  }
-    return result;
-};
-
-const getFavoriteGymByIdFromDb = async (userId: string, favoriteGymId: string) => {
-  
-    const result = await prisma.favoriteGyms.findUnique({ 
+const createFavoriteGymIntoDb = async (
+  userId: string,
+  data: FavoriteGymPayload,
+) => {
+  const existingFavoriteGym = await prisma.favoriteGyms.findFirst({
     where: {
-      id: favoriteGymId,
-    }
-   });
-    if (!result) {
-    throw new AppError(httpStatus.NOT_FOUND,'favoriteGym not found');
-  }
-    return result;
-  };
-
-
-
-const updateFavoriteGymIntoDb = async (userId: string, favoriteGymId: string, data: any) => {
-  
-    const result = await prisma.favoriteGyms.update({
-      where:  {
-        id: favoriteGymId,
-        userId: userId,
-    },
-    data: {
-      ...data,
+      userId,
+      googlePlaceId: data.googlePlaceId,
     },
   });
-  if (!result) {
-    throw new AppError(httpStatus.BAD_REQUEST, 'favoriteGymId, not updated');
+
+  if (existingFavoriteGym) {
+    return existingFavoriteGym;
   }
-    return result;
+
+  const result = await prisma.favoriteGyms.create({
+    data: {
+      userId,
+      gymName: data.gymName,
+      gymAddress: data.gymAddress,
+      latitude: data.latitude,
+      longitude: data.longitude,
+      googlePlaceId: data.googlePlaceId,
+    },
+  });
+
+  if (!result) {
+    throw new AppError(httpStatus.BAD_REQUEST, 'Favorite gym not created');
+  }
+
+  return result;
+};
+
+const getFavoriteGymListFromDb = async (
+  userId: string,
+  options: ISearchAndFilterOptions = {},
+) => {
+  const normalizedOptions = {
+    ...options,
+    sortBy: options.sortBy || 'createdAt',
+    sortOrder: options.sortOrder || 'desc',
   };
+
+  const { page, limit, skip, sortBy, sortOrder } =
+    calculatePagination(normalizedOptions);
+
+  const whereConditions: Record<string, unknown> = {
+    userId,
+  };
+
+  if (options.gymName) {
+    whereConditions.gymName = {
+      contains: options.gymName,
+      mode: 'insensitive',
+    };
+  }
+
+  if (options.searchTerm) {
+    whereConditions.OR = [
+      {
+        gymName: {
+          contains: options.searchTerm,
+          mode: 'insensitive',
+        },
+      },
+      {
+        gymAddress: {
+          contains: options.searchTerm,
+          mode: 'insensitive',
+        },
+      },
+    ];
+  }
+
+  const total = await prisma.favoriteGyms.count({
+    where: whereConditions,
+  });
+
+  const result = await prisma.favoriteGyms.findMany({
+    where: {
+      ...whereConditions,
+    },
+    ...getPaginationQuery(sortBy, sortOrder),
+    skip,
+    take: limit,
+  });
+
+  return formatPaginationResponse(result, total, page, limit);
+};
 
 const deleteFavoriteGymItemFromDb = async (userId: string, favoriteGymId: string) => {
-    const deletedItem = await prisma.favoriteGyms.delete({
-      where: {
+  const existingFavoriteGym = await prisma.favoriteGyms.findFirst({
+    where: {
       id: favoriteGymId,
-      userId: userId,
+      userId,
     },
   });
-  if (!deletedItem) {
-    throw new AppError(httpStatus.BAD_REQUEST, 'favoriteGymId, not deleted');
+
+  if (!existingFavoriteGym) {
+    throw new AppError(httpStatus.NOT_FOUND, 'Favorite gym not found');
   }
 
-    return deletedItem;
-  };
+  const deletedItem = await prisma.favoriteGyms.delete({
+    where: {
+      id: favoriteGymId,
+    },
+  });
+
+  return deletedItem;
+};
 
 export const favoriteGymService = {
-createFavoriteGymIntoDb,
-getFavoriteGymListFromDb,
-getFavoriteGymByIdFromDb,
-updateFavoriteGymIntoDb,
-deleteFavoriteGymItemFromDb,
+  createFavoriteGymIntoDb,
+  getFavoriteGymListFromDb,
+  deleteFavoriteGymItemFromDb,
 };

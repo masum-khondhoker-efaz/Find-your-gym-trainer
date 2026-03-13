@@ -46,4 +46,9 @@ export default {
   },
   backend_base_url: process.env.BACKEND_BASE_URL,
   frontend_base_url: process.env.FRONTEND_BASE_URL,
+  apify: {
+    token: process.env.APIFY_TOKEN,
+    dataset_id: process.env.APIFY_DATASET_ID,
+  },
+
 };

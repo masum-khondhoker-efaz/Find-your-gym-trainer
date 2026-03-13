@@ -34,6 +34,7 @@ export interface ISearchAndFilterOptions extends IPaginationOptions {
   offset?: number | string;
 
   categoryName?: string;
+  gymName?: string;
   latitude?: number | string;
   longitude?: number | string;
   distanceInKm?: number | string;

@@ -7,22 +7,13 @@ import { favoriteGymValidation } from './favoriteGym.validation';
 const router = express.Router();
 
 router.post(
-'/',
-auth(),
-validateRequest(favoriteGymValidation.createSchema),
-favoriteGymController.createFavoriteGym,
+  '/',
+  auth(),
+  validateRequest(favoriteGymValidation.createSchema),
+  favoriteGymController.createFavoriteGym,
 );
 
 router.get('/', auth(), favoriteGymController.getFavoriteGymList);
-
-router.get('/:id', auth(), favoriteGymController.getFavoriteGymById);
-
-router.put(
-'/:id',
-auth(),
-validateRequest(favoriteGymValidation.updateSchema),
-favoriteGymController.updateFavoriteGym,
-);
 
 router.delete('/:id', auth(), favoriteGymController.deleteFavoriteGym);
 
