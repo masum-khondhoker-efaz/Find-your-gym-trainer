@@ -79,8 +79,23 @@ const getMyTrainerProfile = catchAsync(async (req, res) => {
 
 const updateMyProfile = catchAsync(async (req, res) => {
   const user = req.user as any;
+  const role = user.role as UserRoleEnum;
+  if (role === UserRoleEnum.SUPER_ADMIN || role === UserRoleEnum.ADMIN) {
+    // check only  fullName, phoneNumber, address can be updated for admin and super admin
+    const allowedFields = [ 'fullName', 'phoneNumber', 'address'];
+    const isUpdatingOtherFields = Object.keys(req.body).some(
+      key => !allowedFields.includes(key),
+    );
+    if (isUpdatingOtherFields) {
+      throw new AppError(
+        httpStatus.BAD_REQUEST,
+        'Only fullName, phoneNumber, and address can be updated for admin and super admin users.'
+      );
+    }
+  }
 
-  const result = await UserServices.updateMyProfileIntoDB(user.id, req.body);
+
+  const result = await UserServices.updateMyProfileIntoDB(user.id, req.body, role);
 
   sendResponse(res, {
     statusCode: httpStatus.OK,

@@ -7,11 +7,11 @@ import config from '../../../config';
 const loginUser = catchAsync(async (req, res) => {
   const result = await AuthServices.loginUserFromDB(req.body);
   // console.log(process.env.NODE_ENV === 'production' ? 'lax' : 'none' , 'is the site running in production?');
-   //add refresh token to cookies
+  //add refresh token to cookies
   res.cookie('refreshToken', result.refreshToken, {
     httpOnly: true,
     secure: config.env === 'production',
-    sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax', 
+    sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax',
     maxAge: 365 * 24 * 60 * 60 * 1000, // 365 days
   });
   sendResponse(res, {
@@ -22,7 +22,7 @@ const loginUser = catchAsync(async (req, res) => {
 });
 
 const refreshToken = catchAsync(async (req, res) => {
-  const refreshToken = req.headers.authorization as string;
+  const refreshToken = req.headers.authorization as string || req.cookies.refreshToken;
 
   // console.log('refreshToken', refreshToken);
 
@@ -30,9 +30,9 @@ const refreshToken = catchAsync(async (req, res) => {
   res.cookie('refreshToken', result.refreshToken, {
     httpOnly: true,
     secure: config.env === 'production',
-    sameSite: 'none', 
+    sameSite: 'none',
     maxAge: 365 * 24 * 60 * 60 * 1000, // 7 days
-  })
+  });
   sendResponse(res, {
     statusCode: httpStatus.OK,
     message: 'Token refreshed successfully',

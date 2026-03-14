@@ -1,6 +1,7 @@
 import prisma from '../../utils/prisma';
 import AppError from '../../errors/AppError';
 import httpStatus from 'http-status';
+import { notificationService } from '../notification/notification.service';
 
 const createCommentIntoDb = async (userId: string, data: any) => {
   const { postId, text } = data;
@@ -9,6 +10,10 @@ const createCommentIntoDb = async (userId: string, data: any) => {
   const post = await prisma.post.findUnique({
     where: {
       id: postId,
+    },
+    select: {
+      id: true,
+      userId: true,
     },
   });
 
@@ -87,6 +92,14 @@ const createCommentIntoDb = async (userId: string, data: any) => {
     },
     update: {}, // No update needed, just ensure it exists
   });
+
+  if (post.userId !== userId) {
+    await notificationService.sendNotification(
+      'New Comment on Your Post',
+      `${result.user.fullName || 'Someone'} commented on your post.`,
+      post.userId,
+    );
+  }
 
   return result;
 };

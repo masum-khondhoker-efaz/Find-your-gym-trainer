@@ -1,5 +1,10 @@
 import prisma from '../../utils/prisma';
-import { OrderStatus, PaymentStatus, UserRoleEnum, ReviewType } from '@prisma/client';
+import {
+  OrderStatus,
+  PaymentStatus,
+  UserRoleEnum,
+  ReviewType,
+} from '@prisma/client';
 import AppError from '../../errors/AppError';
 import httpStatus from 'http-status';
 import { ISearchAndFilterOptions } from '../../interface/pagination.type';
@@ -14,6 +19,7 @@ import {
   combineQueries,
   buildDateRangeQuery,
 } from '../../utils/searchFilter';
+import { notificationService } from '../notification/notification.service';
 
 // ==================== PRODUCT REVIEWS ====================
 // Product reviews automatically review the trainer who created the product
@@ -86,6 +92,12 @@ const createProductReviewIntoDb = async (userId: string, data: any) => {
     },
   });
 
+  await notificationService.sendNotification(
+    'New Product Review',
+    `You received a new ${rating}-star review on your product ${product.productName}.`,
+    product.userId,
+  );
+
   // 6️⃣ Update trainer's average rating (since this product review is also a trainer review)
   const trainerId = product.userId;
   const trainer = await prisma.trainer.findUnique({
@@ -130,11 +142,14 @@ const getProductReviewListFromDb = async (
   const normalizedOptions = {
     ...options,
     sortBy: options.sortBy || 'createdAt',
-    sortOrder: (options.sortOrder?.toLowerCase() === 'asc' ? 'asc' : 'desc') as 'asc' | 'desc',
+    sortOrder: (options.sortOrder?.toLowerCase() === 'asc' ? 'asc' : 'desc') as
+      | 'asc'
+      | 'desc',
   };
 
   // Pagination
-  const { page, limit, skip, sortBy, sortOrder } = calculatePagination(normalizedOptions);
+  const { page, limit, skip, sortBy, sortOrder } =
+    calculatePagination(normalizedOptions);
 
   // Build search query (search in comment and user name)
   const searchQuery = options.searchTerm
@@ -239,13 +254,15 @@ const getProductReviewListFromDb = async (
       trainerId: review.product!.userId,
       trainerName: review.product!.user.fullName,
       repliesCount: review.trainerReplies.length,
-      reply: review.trainerReplies[0] ? {
-        id: review.trainerReplies[0].id,
-        reply: review.trainerReplies[0].reply,
-        createdAt: review.trainerReplies[0].createdAt,
-        trainerName: review.trainerReplies[0].trainer.user.fullName,
-        trainerImage: review.trainerReplies[0].trainer.user.image,
-      } : null,
+      reply: review.trainerReplies[0]
+        ? {
+            id: review.trainerReplies[0].id,
+            reply: review.trainerReplies[0].reply,
+            createdAt: review.trainerReplies[0].createdAt,
+            trainerName: review.trainerReplies[0].trainer.user.fullName,
+            trainerImage: review.trainerReplies[0].trainer.user.image,
+          }
+        : null,
     }));
 
   // Calculate stats for all reviews of this product
@@ -293,12 +310,15 @@ const getTrainerReviewListFromDb = async (
   const normalizedOptions = {
     ...options,
     sortBy: options.sortBy || 'createdAt',
-    sortOrder: (options.sortOrder?.toLowerCase() === 'asc' ? 'asc' : 'desc') as 'asc' | 'desc',
+    sortOrder: (options.sortOrder?.toLowerCase() === 'asc' ? 'asc' : 'desc') as
+      | 'asc'
+      | 'desc',
   };
 
   // Pagination
-  const { page, limit, skip, sortBy, sortOrder } = calculatePagination(normalizedOptions);
-  
+  const { page, limit, skip, sortBy, sortOrder } =
+    calculatePagination(normalizedOptions);
+
   // Build search query (search in comment and user name)
   const searchQuery = options.searchTerm
     ? {
@@ -324,7 +344,7 @@ const getTrainerReviewListFromDb = async (
   // Build filter query
   const parsedRating =
     options.rating != null ? Number(options.rating) : undefined;
-    
+
   const filterFields: Record<string, any> = {
     productId: { in: trainerProductIds },
     type: ReviewType.PRODUCT,
@@ -340,7 +360,7 @@ const getTrainerReviewListFromDb = async (
     endDate: options.endDate,
     dateField: 'createdAt',
   });
-  
+
   // Combine all queries
   const whereQuery = combineQueries(searchQuery, filterQuery, dateQuery);
   // Fetch total count for pagination
@@ -400,20 +420,22 @@ const getTrainerReviewListFromDb = async (
       trainerId: review.product!.userId,
       trainerName: review.product!.user.fullName,
       repliesCount: review.trainerReplies.length,
-      reply: review.trainerReplies[0] ? {
-        id: review.trainerReplies[0].id,
-        reply: review.trainerReplies[0].reply,
-        createdAt: review.trainerReplies[0].createdAt,
-        trainerName: review.trainerReplies[0].trainer.user.fullName,
-        trainerImage: review.trainerReplies[0].trainer.user.image,
-      } : null,
+      reply: review.trainerReplies[0]
+        ? {
+            id: review.trainerReplies[0].id,
+            reply: review.trainerReplies[0].reply,
+            createdAt: review.trainerReplies[0].createdAt,
+            trainerName: review.trainerReplies[0].trainer.user.fullName,
+            trainerImage: review.trainerReplies[0].trainer.user.image,
+          }
+        : null,
     }));
 
   // Calculate stats for all reviews of this trainer
   const allTrainerReviews = await prisma.review.findMany({
-    where: { 
-      productId: { in: trainerProductIds }, 
-      type: ReviewType.PRODUCT 
+    where: {
+      productId: { in: trainerProductIds },
+      type: ReviewType.PRODUCT,
     },
     select: { rating: true },
   });
@@ -490,13 +512,41 @@ const createSystemReviewIntoDb = async (userId: string, data: any) => {
     throw new AppError(httpStatus.BAD_REQUEST, 'Review not created');
   }
 
+  const [reviewer, admins] = await Promise.all([
+    prisma.user.findUnique({
+      where: { id: userId },
+      select: { fullName: true },
+    }),
+    prisma.user.findMany({
+      where: {
+        role: { in: [UserRoleEnum.ADMIN, UserRoleEnum.SUPER_ADMIN] },
+      },
+      select: { id: true },
+    }),
+  ]);
+
+  if (admins.length) {
+    await Promise.all(
+      admins.map(admin =>
+        notificationService.sendNotification(
+          'New System Review',
+          `${reviewer?.fullName || 'A user'} submitted a system review with ${rating} stars.`,
+          admin.id,
+        ),
+      ),
+    );
+  }
+
   return review;
 };
 
-const createSystemReviewIntoDbForTrainer = async (userId: string, data: any) => {
+const createSystemReviewIntoDbForTrainer = async (
+  userId: string,
+  data: any,
+) => {
   // Trainers can provide feedback on the system after adding at least one product and sold at least one product
   const { rating, comment } = data;
-  
+
   // 1️⃣ Check if user already submitted a system review
   const existingReview = await prisma.review.findFirst({
     where: { userId, type: ReviewType.SYSTEM },
@@ -534,6 +584,31 @@ const createSystemReviewIntoDbForTrainer = async (userId: string, data: any) => 
     throw new AppError(httpStatus.BAD_REQUEST, 'Review not created');
   }
 
+  const [reviewer, admins] = await Promise.all([
+    prisma.user.findUnique({
+      where: { id: userId },
+      select: { fullName: true },
+    }),
+    prisma.user.findMany({
+      where: {
+        role: { in: [UserRoleEnum.ADMIN, UserRoleEnum.SUPER_ADMIN] },
+      },
+      select: { id: true },
+    }),
+  ]);
+
+  if (admins.length) {
+    await Promise.all(
+      admins.map(admin =>
+        notificationService.sendNotification(
+          'New System Review',
+          `${reviewer?.fullName || 'A trainer'} submitted a system review with ${rating} stars.`,
+          admin.id,
+        ),
+      ),
+    );
+  }
+
   return review;
 };
 
@@ -544,11 +619,14 @@ const getSystemReviewListForWebsiteFromDb = async (
   const normalizedOptions = {
     ...options,
     sortBy: options.sortBy || 'createdAt',
-    sortOrder: (options.sortOrder?.toLowerCase() === 'asc' ? 'asc' : 'desc') as 'asc' | 'desc',
+    sortOrder: (options.sortOrder?.toLowerCase() === 'asc' ? 'asc' : 'desc') as
+      | 'asc'
+      | 'desc',
   };
 
   // Pagination
-  const { page, limit, skip, sortBy, sortOrder } = calculatePagination(normalizedOptions);
+  const { page, limit, skip, sortBy, sortOrder } =
+    calculatePagination(normalizedOptions);
 
   // Build filter query - rating must be between 4-5
   const filterFields: Record<string, any> = {
@@ -587,7 +665,6 @@ const getSystemReviewListForWebsiteFromDb = async (
   return formatPaginationResponse(reviews, total, page, limit);
 };
 
-
 const getSystemReviewListFromDb = async (
   options: ISearchAndFilterOptions = {},
 ) => {
@@ -595,11 +672,14 @@ const getSystemReviewListFromDb = async (
   const normalizedOptions = {
     ...options,
     sortBy: options.sortBy || 'createdAt',
-    sortOrder: (options.sortOrder?.toLowerCase() === 'asc' ? 'asc' : 'desc') as 'asc' | 'desc',
+    sortOrder: (options.sortOrder?.toLowerCase() === 'asc' ? 'asc' : 'desc') as
+      | 'asc'
+      | 'desc',
   };
 
   // Pagination
-  const { page, limit, skip, sortBy, sortOrder } = calculatePagination(normalizedOptions);
+  const { page, limit, skip, sortBy, sortOrder } =
+    calculatePagination(normalizedOptions);
 
   // Build search query
   const searchQuery = options.searchTerm
@@ -770,6 +850,12 @@ const createTrainerReplyIntoDb = async (
     },
   });
 
+  await notificationService.sendNotification(
+    'New Reply to Your Review',
+    'A trainer replied to your product review.',
+    review.userId,
+  );
+
   return trainerReply;
 };
 
@@ -927,6 +1013,29 @@ const deleteReviewItemFromDb = async (userId: string, reviewId: string) => {
   return deletedItem;
 };
 
+const deleteSystemReviewItemFromDb = async (reviewId: string) => {
+  const existingReview = await prisma.review.findUnique({
+    where: {
+      id: reviewId,
+      type: ReviewType.SYSTEM,
+    },
+  });
+  if (!existingReview) {
+    throw new AppError(httpStatus.NOT_FOUND, 'System review not found');
+  }
+
+  const deletedItem = await prisma.review.delete({
+    where: {
+      id: reviewId,
+    },
+  });
+  if (!deletedItem) {
+    throw new AppError(httpStatus.BAD_REQUEST, 'System review not deleted');
+  }
+
+  return deletedItem;
+};
+
 export const reviewService = {
   // Product Reviews (also reviews the trainer who created the product)
   createProductReviewIntoDb,
@@ -945,4 +1054,5 @@ export const reviewService = {
   // Common
   updateReviewIntoDb,
   deleteReviewItemFromDb,
+  deleteSystemReviewItemFromDb,
 };

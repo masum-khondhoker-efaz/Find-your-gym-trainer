@@ -1,6 +1,7 @@
 import prisma from '../../utils/prisma';
 import AppError from '../../errors/AppError';
 import httpStatus from 'http-status';
+import { notificationService } from '../notification/notification.service';
 
 const createShareIntoDb = async (userId: string, data: any) => {
   const { postId } = data;
@@ -9,6 +10,10 @@ const createShareIntoDb = async (userId: string, data: any) => {
   const post = await prisma.post.findUnique({
     where: {
       id: postId,
+    },
+    select: {
+      id: true,
+      userId: true,
     },
   });
 
@@ -97,6 +102,14 @@ const createShareIntoDb = async (userId: string, data: any) => {
     },
     update: {}, // No update needed, just ensure it exists
   });
+
+  if (post.userId !== userId) {
+    await notificationService.sendNotification(
+      'Your Post Was Shared',
+      `${result.user.fullName || 'Someone'} shared your post.`,
+      post.userId,
+    );
+  }
 
   return result;
 };

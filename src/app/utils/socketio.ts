@@ -3,6 +3,7 @@ import { Server as SocketIOServer, Socket } from 'socket.io';
 import prisma from './prisma';
 import { socketAuth } from '../middlewares/socketAuth';
 import { UserRoleEnum } from '@prisma/client';
+import { notificationService } from '../modules/notification/notification.service';
 
 const onlineUsers = new Set<string>();
 const userSockets = new Map<string, Socket>();
@@ -114,6 +115,12 @@ export function setupSocketIO(server: HTTPServer) {
             images: payload.images || [],
           },
         });
+
+        await notificationService.sendNotification(
+          'New Message',
+          `${user.fullName || 'Someone'} sent you a new message.`,
+          payload.receiverId,
+        );
 
         // Emit to room
         const roomName = [id, payload.receiverId].sort().join('-');

@@ -14,7 +14,7 @@ export const generateToken = (
 
 
 export const refreshToken = (
-  payload: { id: string; email: string; role: string },
+  payload: { id: string; email: string; role: string, purpose: string},
   secret: Secret,
   expiresIn: string
 ) => {

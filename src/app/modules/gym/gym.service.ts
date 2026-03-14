@@ -16,6 +16,7 @@ type NormalizedGym = {
   gymName: string;
   gymAddress: string | null;
   categoryName: string | null;
+  categories: string[];
   googlePlaceId: string;
   latitude: number;
   longitude: number;
@@ -119,7 +120,8 @@ const normalizeApifyGym = (item: ApifyGymItem) => {
   return {
     gymName: item.title || item.name || 'Unknown Gym',
     gymAddress: item.address || null,
-    categoryName: item.categoryName || item.categories?.[0] || null,
+    categoryName: item.categoryName || null,
+    categories: item.categories || [],
     googlePlaceId: placeId,
     latitude,
     longitude,
@@ -294,6 +296,7 @@ const getNearbyGymsFromDbAndApify = async ({
           user: {
             select: {
               fullName: true,
+              image: true,
             },
           },
         },
@@ -311,6 +314,7 @@ const getNearbyGymsFromDbAndApify = async ({
       gym.trainers.map(trainer => ({
         id: trainer.id,
         name: trainer.user?.fullName || null,
+        image: trainer.user?.image || null,
       })),
     ]),
   );
@@ -323,6 +327,7 @@ const getNearbyGymsFromDbAndApify = async ({
         gymName: gym.gymName,
         gymAddress: gym.gymAddress,
         categoryName: gym.categoryName,
+        categories: gym.categories,
         googlePlaceId: gym.googlePlaceId,
         latitude: gym.latitude,
         longitude: gym.longitude,
@@ -341,6 +346,7 @@ const getNearbyGymsFromDbAndApify = async ({
       gymName: gym.gymName,
       gymAddress: gym.gymAddress,
       categoryName: gym.categoryName,
+      categories: gym.categories,
       googlePlaceId: gym.googlePlaceId,
       latitude: gym.latitude,
       longitude: gym.longitude,

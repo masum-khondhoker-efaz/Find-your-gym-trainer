@@ -156,6 +156,21 @@ const deleteReview = catchAsync(async (req, res) => {
   });
 });
 
+const deleteSystemReview = catchAsync(async (req, res) => {
+  const user = req.user as any;
+
+  const result = await reviewService.deleteSystemReviewItemFromDb(
+    // user.id,
+    req.params.id,
+  );
+  sendResponse(res, {
+    statusCode: httpStatus.OK,
+    success: true,
+    message: 'Review deleted successfully',
+    data: result,
+  });
+});
+
 export const reviewController = {
   // Product Reviews
   createProductReview,
@@ -173,4 +188,5 @@ export const reviewController = {
   // Common
   updateReview,
   deleteReview,
+  deleteSystemReview,
 };

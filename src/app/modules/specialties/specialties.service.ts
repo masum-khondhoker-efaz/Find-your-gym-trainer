@@ -1,10 +1,16 @@
 import prisma from '../../utils/prisma';
-import { UserRoleEnum, UserStatus } from '@prisma/client';
 import AppError from '../../errors/AppError';
 import httpStatus from 'http-status';
+import { ISearchAndFilterOptions } from '../../interface/pagination.type';
+import {
+  calculatePagination,
+  formatPaginationResponse,
+  getPaginationQuery,
+} from '../../utils/pagination';
 
 type CreateSpecialtyPayload = {
   specialtyName: string;
+  specialtyImage?: string;
 };
 
 const createSpecialtiesIntoDb = async (
@@ -35,6 +41,7 @@ const createSpecialtiesIntoDb = async (
     const newSpecialty = await prisma.specialties.create({
       data: {
         specialtyName,
+        specialtyImage: payload.specialtyImage,
         userId,
       },
     });
@@ -60,10 +67,59 @@ const createSpecialtiesIntoDb = async (
   }
 };
 
+const getSpecialtiesListFromDb = async (
+  options: ISearchAndFilterOptions = {},
+) => {
+  const normalizedOptions = {
+    ...options,
+    sortBy: options.sortBy || 'createdAt',
+    sortOrder: options.sortOrder || 'desc',
+  };
 
+  const { page, limit, skip, sortBy, sortOrder } =
+    calculatePagination(normalizedOptions);
 
-const getSpecialtiesListFromDb = async () => {
-  const result = await prisma.specialties.findMany();
+  const whereConditions: Record<string, unknown> = {};
+
+  if (options.specialtyName) {
+    whereConditions.specialtyName = {
+      contains: options.specialtyName,
+      mode: 'insensitive',
+    };
+  }
+
+  if (options.searchTerm) {
+    whereConditions.OR = [
+      {
+        specialtyName: {
+          contains: options.searchTerm,
+          mode: 'insensitive',
+        },
+      },
+    ];
+  }
+
+  const total = await prisma.specialties.count({
+    where: whereConditions,
+  });
+
+  const result = await prisma.specialties.findMany({
+    where: whereConditions,
+    ...getPaginationQuery(sortBy, sortOrder),
+    skip,
+    take: limit,
+  });
+
+  return formatPaginationResponse(result, total, page, limit);
+};
+
+const getAllSpecialtiesListFromDb = async () => {
+  const result = await prisma.specialties.findMany({
+    orderBy: {
+      createdAt: 'desc',
+    },
+  });
+
   if (result.length === 0) {
     return [];
   }
@@ -87,6 +143,7 @@ const getSpecialtiesByIdFromDb = async (
 
 type UpdateSpecialtyPayload = {
   specialtyName?: string;
+  specialtyImage?: string;
 };
 
 const updateSpecialtiesIntoDb = async (
@@ -139,7 +196,10 @@ const updateSpecialtiesIntoDb = async (
   // 3️⃣ Perform update
   const updatedSpecialty = await prisma.specialties.update({
     where: { id: specialtiesId },
-    data: updateData,
+    data: {
+      ...updateData,
+      specialtyImage: payload.specialtyImage || existingSpecialty.specialtyImage,
+    },
   });
 
   return updatedSpecialty;
@@ -177,6 +237,7 @@ const deleteSpecialtiesItemFromDb = async (
 export const specialtiesService = {
   createSpecialtiesIntoDb,
   getSpecialtiesListFromDb,
+  getAllSpecialtiesListFromDb,
   getSpecialtiesByIdFromDb,
   updateSpecialtiesIntoDb,
   deleteSpecialtiesItemFromDb,

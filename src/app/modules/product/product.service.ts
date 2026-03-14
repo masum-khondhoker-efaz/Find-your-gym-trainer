@@ -4,6 +4,7 @@ import AppError from '../../errors/AppError';
 import httpStatus from 'http-status';
 import { deleteFileFromSpace } from '../../utils/deleteImage';
 import { ISearchAndFilterOptions } from '../../interface/pagination.type';
+import { notificationService } from '../notification/notification.service';
 
 const createProductIntoDb = async (userId: string, data: any) => {
   const { productName, productImage, productVideo, agreementPdf } = data;
@@ -39,6 +40,32 @@ const createProductIntoDb = async (userId: string, data: any) => {
   if (!product) {
     await cleanupFiles();
     throw new AppError(httpStatus.BAD_REQUEST, 'Product not created');
+  }
+
+  const [trainer, admins] = await Promise.all([
+    prisma.user.findUnique({
+      where: { id: userId },
+      select: { fullName: true },
+    }),
+    prisma.user.findMany({
+      where: {
+        role: { in: [UserRoleEnum.ADMIN, UserRoleEnum.SUPER_ADMIN] },
+        status: UserStatus.ACTIVE,
+      },
+      select: { id: true },
+    }),
+  ]);
+
+  if (admins.length) {
+    await Promise.all(
+      admins.map(admin =>
+        notificationService.sendNotification(
+          'New Product Pending Approval',
+          `${trainer?.fullName || 'A trainer'} added ${product.productName}. Please review and approve or block it.`,
+          admin.id,
+        ),
+      ),
+    );
   }
 
   return product;
@@ -410,7 +437,7 @@ const getMyProductsFromDb = async (
 
   const whereClause: any = {
     userId: userId,
-    isActive: true,
+    // isActive: true,
   };
 
   // Search filter

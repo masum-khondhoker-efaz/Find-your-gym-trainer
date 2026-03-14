@@ -12,6 +12,8 @@ import httpStatus from 'http-status';
 import Stripe from 'stripe';
 import config from '../../../config';
 import emailSender from '../../utils/emailSender';
+import { calculatePagination, formatPaginationResponse } from '../../utils/pagination';
+import { ISearchAndFilterOptions } from '../../interface/pagination.type';
 
 // Initialize Stripe with your secret API key
 const stripe = new Stripe(config.stripe.stripe_secret_key as string, {
@@ -423,19 +425,289 @@ const getTrainerSubscriptionPlanFromDb = async (userId: string) => {
   };
 };
 
-const getUserSubscriptionListFromDb = async (userId: string) => {
-  const result = await prisma.userSubscription.findMany({
-    include: {
-      subscriptionOffer: true,
+const getUserSubscriptionListFromDb = async (
+  _userId: string,
+  options: ISearchAndFilterOptions = {},
+) => {
+  const normalizedOptions = {
+    ...options,
+    page: options.page || 1,
+    limit: options.limit || 10,
+    sortBy: options.sortBy || 'createdAt',
+    sortOrder: options.sortOrder || 'desc',
+  };
+
+  const { page, limit, skip, sortBy, sortOrder } =
+    calculatePagination(normalizedOptions);
+
+  const andConditions: Prisma.UserSubscriptionWhereInput[] = [
+    // This endpoint is admin-facing list: include all users' subscription-plan records.
+    { subscriptionOfferId: { isSet: true } },
+    {
+      OR: [{ productId: null }, { productId: { isSet: false } }],
     },
-  });
-  if (result.length === 0) {
-    return { message: 'No userSubscription found' };
+  ];
+
+  if (options.startDate) {
+    const parsedStartDate = new Date(options.startDate);
+    if (!Number.isNaN(parsedStartDate.getTime())) {
+      andConditions.push({
+        startDate: {
+          gte: parsedStartDate,
+        },
+      });
+    }
   }
-  return result.map(item => ({
+
+  if (options.endDate) {
+    const parsedEndDate = new Date(options.endDate);
+    if (!Number.isNaN(parsedEndDate.getTime())) {
+      andConditions.push({
+        endDate: {
+          lte: parsedEndDate,
+        },
+      });
+    }
+  }
+
+  const amountValue = options.amount ?? options.filters?.amount;
+  const parsedAmount =
+    amountValue !== undefined ? Number(amountValue) : undefined;
+  const parsedPriceMin =
+    options.priceMin !== undefined ? Number(options.priceMin) : undefined;
+  const parsedPriceMax =
+    options.priceMax !== undefined ? Number(options.priceMax) : undefined;
+
+  const hasAmountFilter =
+    parsedAmount !== undefined && !Number.isNaN(parsedAmount);
+  const hasPriceMin =
+    parsedPriceMin !== undefined && !Number.isNaN(parsedPriceMin);
+  const hasPriceMax =
+    parsedPriceMax !== undefined && !Number.isNaN(parsedPriceMax);
+
+  if (hasAmountFilter || hasPriceMin || hasPriceMax) {
+    const priceFilter: Prisma.FloatFilter = {};
+
+    if (hasAmountFilter) {
+      priceFilter.equals = parsedAmount;
+    }
+
+    if (hasPriceMin) {
+      priceFilter.gte = parsedPriceMin;
+    }
+
+    if (hasPriceMax) {
+      priceFilter.lte = parsedPriceMax;
+    }
+
+    andConditions.push({
+      subscriptionOffer: {
+        is: {
+          price: priceFilter,
+        },
+      },
+    });
+  }
+
+  // totalReferrals filter like price range filter
+    // totalReferrals filter like price range filter
+    const parsedTotalReferralsMin =
+      options.totalReferralsMin !== undefined ? Number(options.totalReferralsMin) : undefined;
+    const parsedTotalReferralsMax =
+      options.totalReferralsMax !== undefined ? Number(options.totalReferralsMax) : undefined;
+
+    const hasTotalReferralsMin =
+      parsedTotalReferralsMin !== undefined && !Number.isNaN(parsedTotalReferralsMin);
+    const hasTotalReferralsMax =
+      parsedTotalReferralsMax !== undefined && !Number.isNaN(parsedTotalReferralsMax);
+
+    if (hasTotalReferralsMin || hasTotalReferralsMax) {
+      const totalReferralsFilter: Prisma.IntFilter = {};
+
+      if (hasTotalReferralsMin) {
+        totalReferralsFilter.gte = parsedTotalReferralsMin;
+      }
+      if (hasTotalReferralsMax) {
+        totalReferralsFilter.lte = parsedTotalReferralsMax;
+      }
+
+      andConditions.push({
+        user: {
+          trainers: {
+            some: {
+              totalReferrals: totalReferralsFilter,
+            },
+          },
+        },
+      });
+    }
+
+
+  if (options.paymentStatus) {
+    andConditions.push({
+      paymentStatus: options.paymentStatus as PaymentStatus,
+    });
+  }
+
+  if (options.fullName) {
+    andConditions.push({
+      user: {
+        fullName: {
+          contains: options.fullName,
+          mode: 'insensitive',
+        },
+      },
+    });
+  }
+
+  if (options.email) {
+    andConditions.push({
+      user: {
+        email: {
+          contains: options.email,
+          mode: 'insensitive',
+        },
+      },
+    });
+  }
+
+  if (options.searchTerm) {
+    const searchTerm = options.searchTerm;
+    const searchableFields = options.searchFields?.length
+      ? options.searchFields
+      : ['fullName', 'email', 'title', 'description'];
+
+    const orConditions: Prisma.UserSubscriptionWhereInput[] = [];
+
+    if (searchableFields.includes('fullName')) {
+      orConditions.push({
+        user: {
+          fullName: {
+            contains: searchTerm,
+            mode: 'insensitive',
+          },
+        },
+      });
+    }
+
+    if (searchableFields.includes('email')) {
+      orConditions.push({
+        user: {
+          email: {
+            contains: searchTerm,
+            mode: 'insensitive',
+          },
+        },
+      });
+    }
+
+    if (searchableFields.includes('title')) {
+      orConditions.push({
+        subscriptionOffer: {
+          is: {
+            title: {
+              contains: searchTerm,
+              mode: 'insensitive',
+            },
+          },
+        },
+      });
+    }
+
+    if (searchableFields.includes('description')) {
+      orConditions.push({
+        subscriptionOffer: {
+          is: {
+            description: {
+              contains: searchTerm,
+              mode: 'insensitive',
+            },
+          },
+        },
+      });
+    }
+
+    if (orConditions.length > 0) {
+      andConditions.push({ OR: orConditions });
+    }
+  }
+
+  const whereConditions: Prisma.UserSubscriptionWhereInput = {
+    AND: andConditions,
+  };
+
+  let orderBy: Prisma.UserSubscriptionOrderByWithRelationInput = {
+    createdAt: sortOrder,
+  };
+
+  if (sortBy === 'amount') {
+    orderBy = {
+      subscriptionOffer: {
+        price: sortOrder,
+      },
+    };
+  } else if (sortBy === 'trainerName') {
+    orderBy = {
+      user: {
+        fullName: sortOrder,
+      },
+    };
+  } else if (sortBy === 'email') {
+    orderBy = {
+      user: {
+        email: sortOrder,
+      },
+    };
+  } else if (
+    ['createdAt', 'updatedAt', 'startDate', 'endDate'].includes(sortBy)
+  ) {
+    orderBy = {
+      [sortBy]: sortOrder,
+    } as Prisma.UserSubscriptionOrderByWithRelationInput;
+  }
+
+  const [result, total] = await prisma.$transaction([
+    prisma.userSubscription.findMany({
+      where: whereConditions,
+      skip,
+      take: limit,
+      orderBy,
+      include: {
+        subscriptionOffer: true,
+        user: {
+          select: {
+            fullName: true,
+            image: true,
+            email: true,
+            trainers: {
+              select: {
+                totalReferrals: true,
+              },
+              take: 1,
+            },
+          },
+        },
+      },
+    }),
+    prisma.userSubscription.count({
+      where: whereConditions,
+    }),
+  ]);
+
+  const now = new Date();
+
+  const transformedResult = result.map(({ user, ...item }) => ({
     ...item,
-    subscriptionOffer: item.subscriptionOffer,
+    trainerInfo: {
+      name: user.fullName,
+      image: user.image,
+      email: user.email,
+      totalReferrals: user.trainers[0]?.totalReferrals || 0,
+    },
+    subscriptionState: item.endDate > now ? 'active' : 'expired',
   }));
+
+  return formatPaginationResponse(transformedResult, total, page, limit);
 };
 
 const getUserSubscriptionByIdFromDb = async (

@@ -1,6 +1,7 @@
 import prisma from '../../utils/prisma';
 import AppError from '../../errors/AppError';
 import httpStatus from 'http-status';
+import { notificationService } from '../notification/notification.service';
 
 const createLikeIntoDb = async (userId: string, data: any) => {
   const { postId } = data;
@@ -9,7 +10,7 @@ const createLikeIntoDb = async (userId: string, data: any) => {
     // 1️⃣ Verify post exists
     const post = await tx.post.findUnique({
       where: { id: postId },
-      select: { id: true },
+      select: { id: true, userId: true },
     });
 
     if (!post) {
@@ -83,6 +84,19 @@ const createLikeIntoDb = async (userId: string, data: any) => {
       create: { postId, userId, date: today },
       update: {},
     });
+
+    if (post.userId !== userId) {
+      const actor = await tx.user.findUnique({
+        where: { id: userId },
+        select: { fullName: true },
+      });
+
+      await notificationService.sendNotification(
+        'New Like on Your Post',
+        `${actor?.fullName || 'Someone'} liked your post.`,
+        post.userId,
+      );
+    }
 
     return { ...newLike, liked: true };
   });

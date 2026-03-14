@@ -5,6 +5,7 @@ import httpStatus from 'http-status';
 import { page } from 'pdfkit';
 import { deleteFileFromSpace } from '../../utils/deleteImage';
 import { ISearchAndFilterOptions } from '../../interface/pagination.type';
+import { notificationService } from '../notification/notification.service';
 
 const createPostIntoDb = async (userId: string, data: any) => {
   const result = await prisma.post.create({
@@ -16,6 +17,39 @@ const createPostIntoDb = async (userId: string, data: any) => {
   if (!result) {
     throw new AppError(httpStatus.BAD_REQUEST, 'post not created');
   }
+
+  const [postOwner, admins] = await Promise.all([
+    prisma.user.findUnique({
+      where: { id: userId },
+      select: { fullName: true },
+    }),
+    prisma.user.findMany({
+      where: {
+        role: { in: [UserRoleEnum.ADMIN, UserRoleEnum.SUPER_ADMIN] },
+        status: UserStatus.ACTIVE,
+      },
+      select: { id: true },
+    }),
+  ]);
+
+  await notificationService.sendNotification(
+    'Post Published',
+    'Your post has been published successfully.',
+    userId,
+  );
+
+  if (admins.length) {
+    await Promise.all(
+      admins.map(admin =>
+        notificationService.sendNotification(
+          'New Post Created',
+          `${postOwner?.fullName || 'A user'} created a new post.`,
+          admin.id,
+        ),
+      ),
+    );
+  }
+
   return result;
 };
 

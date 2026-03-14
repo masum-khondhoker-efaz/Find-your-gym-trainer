@@ -15,6 +15,17 @@ const createProduct = catchAsync(async (req, res) => {
   // Handle file uploads
   const allFiles = (req.files as Express.Multer.File[]) || [];
 
+  // check if productImage, productVideo or agreementPdf is included in the request
+  if (!allFiles.some((file) => file.fieldname === 'productImage')) {
+    throw new AppError(httpStatus.BAD_REQUEST, 'productImage is required');
+  }
+  if (!allFiles.some((file) => file.fieldname === 'productVideo')) {
+    throw new AppError(httpStatus.BAD_REQUEST, 'productVideo is required');
+  }
+  if (!allFiles.some((file) => file.fieldname === 'agreementPdf')) {
+    throw new AppError(httpStatus.BAD_REQUEST, 'agreementPdf is required');
+  }
+
   for (const file of allFiles) {
     try {
       const url = await uploadFileToS3(file, 'product-media');
@@ -28,7 +39,7 @@ const createProduct = catchAsync(async (req, res) => {
       }
     } catch (error) {
       throw new AppError(
-        httpStatus.INTERNAL_SERVER_ERROR,
+        httpStatus.BAD_REQUEST,
         `Failed to upload ${file.fieldname}`,
       );
     }
@@ -43,7 +54,7 @@ const createProduct = catchAsync(async (req, res) => {
   sendResponse(res, {
     statusCode: httpStatus.CREATED,
     success: true,
-    message: 'Product created successfully',
+    message: 'Product created successfully. Waiting for admin approval.',
     data: result,
   });
 });

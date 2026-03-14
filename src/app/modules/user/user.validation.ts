@@ -54,9 +54,7 @@ const updateTrainerProfileSchema = z.object({
         )
         .optional(),
       experienceYears: z
-        .string({
-          required_error: 'Experience years is required!',
-        })
+        .union([z.string(), z.number()])
         .transform(val => Number(val))
         .optional(),
       trainerServiceType: z
@@ -92,15 +90,11 @@ const updateTrainerProfileSchema = z.object({
         })
         .optional(),
       latitude: z
-        .string({
-          required_error: 'Latitude is required!',
-        })
+        .union([z.string(), z.number()])
         .transform(val => Number(val))
         .optional(),
       longitude: z
-        .string({
-          required_error: 'Longitude is required!',
-        })
+        .union([z.string(), z.number()])
         .transform(val => Number(val))
         .optional(),
     })

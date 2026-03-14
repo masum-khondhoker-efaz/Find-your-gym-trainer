@@ -15,6 +15,7 @@ import {
   formatPaginationResponse,
   getPaginationQuery,
 } from '../../utils/pagination';
+import { notificationService } from '../notification/notification.service';
 
 const getDashboardStatsFromDb = async (
   userId: string,
@@ -795,6 +796,17 @@ const updateProductVisibilityIntoDb = async (
       'Failed to update product visibility',
     );
   }
+
+  await notificationService.sendNotification(
+    updatedProduct.isActive
+      ? 'Product Approved'
+      : 'Product Blocked',
+    updatedProduct.isActive
+      ? `Your product ${updatedProduct.productName} has been approved and is now visible.`
+      : `Your product ${updatedProduct.productName} has been blocked by admin.`,
+    updatedProduct.userId,
+  );
+
   return updatedProduct;
 };
 
@@ -1053,6 +1065,15 @@ const updatePostStatusIntoDb = async (userId: string, postId: string) => {
   if (!updatedPost) {
     throw new AppError(httpStatus.BAD_REQUEST, 'Failed to update post status');
   }
+
+  await notificationService.sendNotification(
+    updatedPost.isPublished ? 'Post Restored' : 'Post Blocked',
+    updatedPost.isPublished
+      ? 'Your post has been restored by admin.'
+      : 'Your post has been blocked by admin.',
+    updatedPost.userId,
+  );
+
   return updatedPost;
 };
 

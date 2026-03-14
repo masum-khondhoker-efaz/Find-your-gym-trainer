@@ -71,9 +71,17 @@ router.patch(
 
 router.delete(
   '/:id',
-  auth(UserRoleEnum.MEMBER, UserRoleEnum.SUPER_ADMIN, UserRoleEnum.ADMIN, UserRoleEnum.TRAINER),
+  auth(UserRoleEnum.MEMBER,UserRoleEnum.TRAINER),
   checkSubscriptionForTrainers(),
   reviewController.deleteReview,
 );
+
+router.delete(
+  '/admin/:id',
+  auth(UserRoleEnum.SUPER_ADMIN, UserRoleEnum.ADMIN),
+  reviewController.deleteSystemReview,
+);
+
+
 
 export const reviewRoutes = router;

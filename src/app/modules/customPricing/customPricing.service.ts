@@ -12,6 +12,8 @@ const createCustomPricingIntoDb = async (userId: string, data: any) => {
     where: {
       id: productId,
       userId: userId,
+      isActive: true,
+      status: ProductStatus.ACTIVE
     },
   });
 

@@ -16,6 +16,7 @@ import {
 import emailSender from '../../utils/emailSender';
 import AppError from '../../errors/AppError';
 import { userSubscriptionService } from '../userSubscription/userSubscription.service';
+import { notificationService } from '../notification/notification.service';
 
 // Initialize Stripe with your secret API key
 const stripe = new Stripe(config.stripe.stripe_secret_key as string, {
@@ -280,6 +281,36 @@ const handleWebHook = catchAsync(async (req: any, res: any) => {
                 },
               });
 
+              const [memberUser, trainerUser, purchasedProduct] =
+                await Promise.all([
+                  prisma.user.findUnique({
+                    where: { id: userId },
+                    select: { id: true, fullName: true },
+                  }),
+                  prisma.user.findUnique({
+                    where: { id: order.trainerId || '' },
+                    select: { id: true, fullName: true },
+                  }),
+                  prisma.product.findUnique({
+                    where: { id: productId },
+                    select: { productName: true },
+                  }),
+                ]);
+
+              if (order.trainerId && trainerUser) {
+                await notificationService.sendNotification(
+                  'New Product Purchase',
+                  `${memberUser?.fullName || 'A member'} purchased ${purchasedProduct?.productName || 'your product'}.`,
+                  order.trainerId,
+                );
+              }
+
+              await notificationService.sendNotification(
+                'Purchase Successful',
+                `Your purchase for ${purchasedProduct?.productName || 'the selected product'} has been completed successfully.`,
+                userId,
+              );
+
               console.log('✅ Product order payment completed successfully');
             } else {
               console.log('⚠️ No pending order found for this payment');
@@ -329,7 +360,9 @@ const handleWebHook = catchAsync(async (req: any, res: any) => {
               });
 
               // Don't create payment here - let invoice.payment_succeeded handle it with full invoice details
-              console.log('✅ Order updated, payment will be created when invoice is paid');
+              console.log(
+                '✅ Order updated, payment will be created when invoice is paid',
+              );
 
               // Calculate subscription end date based on invoice frequency
               const currentDate = new Date();
@@ -705,18 +738,32 @@ const handleWebHook = catchAsync(async (req: any, res: any) => {
         if (referralId && referralCode) {
           try {
             // Create AppliedReferral with APPLIED status
-            await prisma.appliedReferral.create({
+            const appliedReferral = await prisma.appliedReferral.create({
               data: {
                 userId: user.id,
                 referralId: referralId,
                 status: AppliedReferralStatus.APPLIED,
               },
             });
+            if (appliedReferral) {
+              // Increment referral usage count
+              const referral = await prisma.referral.findUnique({
+                where: { id: referralId },
+                include: {
+                  user: {
+                    select: { id: true},
+                  },
+                },
+              });
+              if (referral) {
+                await prisma.trainer.update({
+                  where: { userId: referral.user.id },
+                  data: { totalReferrals: { increment: 1 } },
+                });
+              }
+            }
 
-            console.log(
-              '✅ Referral code applied successfully:',
-              referralCode,
-            );
+            console.log('✅ Referral code applied successfully:', referralCode);
           } catch (referralError) {
             console.error('⚠️ Error applying referral code:', referralError);
             // Don't fail the subscription if referral tracking fails
@@ -724,6 +771,38 @@ const handleWebHook = catchAsync(async (req: any, res: any) => {
         }
 
         console.log('✅ Platform subscription fully processed from webhook');
+
+        const [subscribedTrainer, admins] = await Promise.all([
+          prisma.user.findUnique({
+            where: { id: user.id },
+            select: { id: true, fullName: true },
+          }),
+          prisma.user.findMany({
+            where: {
+              role: { in: [UserRoleEnum.ADMIN, UserRoleEnum.SUPER_ADMIN] },
+              status: 'ACTIVE',
+            },
+            select: { id: true },
+          }),
+        ]);
+
+        await notificationService.sendNotification(
+          'Subscription Activated',
+          'Your trainer subscription has been activated successfully.',
+          user.id,
+        );
+
+        if (admins.length) {
+          await Promise.all(
+            admins.map(adminUser =>
+              notificationService.sendNotification(
+                'Trainer Onboarding Completed',
+                `${subscribedTrainer?.fullName || 'A trainer'} purchased a subscription plan and completed onboarding.`,
+                adminUser.id,
+              ),
+            ),
+          );
+        }
       } catch (error) {
         console.error(
           '❌ Error creating platform subscription from webhook:',
@@ -973,7 +1052,9 @@ const handleWebHook = catchAsync(async (req: any, res: any) => {
           });
 
           if (productOrder) {
-            console.log('Product subscription renewal - will be handled by invoice.payment_succeeded');
+            console.log(
+              'Product subscription renewal - will be handled by invoice.payment_succeeded',
+            );
             break;
           }
 
@@ -990,7 +1071,10 @@ const handleWebHook = catchAsync(async (req: any, res: any) => {
           }
 
           const newEndDate = new Date(currentPeriodEnd * 1000);
-          console.log('Updating platform subscription end date to:', newEndDate);
+          console.log(
+            'Updating platform subscription end date to:',
+            newEndDate,
+          );
 
           await prisma.userSubscription.updateMany({
             where: { stripeSubscriptionId: subscriptionId },
@@ -1043,7 +1127,9 @@ const handleWebHook = catchAsync(async (req: any, res: any) => {
             console.log('Created platform subscription renewal payment record');
           }
 
-          console.log('Platform subscription auto-renewal successfully processed');
+          console.log(
+            'Platform subscription auto-renewal successfully processed',
+          );
         } else if (billingReason === 'subscription_create') {
           console.log('Initial subscription payment detected');
 
@@ -1091,7 +1177,9 @@ const handleWebHook = catchAsync(async (req: any, res: any) => {
           });
 
           if (productOrder) {
-            console.log('Product subscription update - will be handled by invoice.payment_succeeded');
+            console.log(
+              'Product subscription update - will be handled by invoice.payment_succeeded',
+            );
             break;
           }
 
@@ -1162,7 +1250,9 @@ const handleWebHook = catchAsync(async (req: any, res: any) => {
           });
 
           if (productOrder) {
-            console.log('Product subscription - will be handled by invoice.payment_succeeded');
+            console.log(
+              'Product subscription - will be handled by invoice.payment_succeeded',
+            );
             break;
           }
 
@@ -1202,7 +1292,9 @@ const handleWebHook = catchAsync(async (req: any, res: any) => {
                   },
                 },
               });
-              console.log('Created platform subscription payment record for other invoice type');
+              console.log(
+                'Created platform subscription payment record for other invoice type',
+              );
             }
           }
         }
@@ -1335,7 +1427,8 @@ const handleWebHook = catchAsync(async (req: any, res: any) => {
               data: {
                 orderId: productOrder.id,
                 invoiceId: invoiceId,
-                paymentIntentId: paymentIntentId || existingPayment.paymentIntentId,
+                paymentIntentId:
+                  paymentIntentId || existingPayment.paymentIntentId,
                 invoice: paidInvoice.hosted_invoice_url || undefined,
                 status: PaymentStatus.COMPLETED,
                 paymentAmount: paidInvoice.amount_paid
@@ -1364,9 +1457,7 @@ const handleWebHook = catchAsync(async (req: any, res: any) => {
                 invoice: paidInvoice.hosted_invoice_url || '',
               },
             });
-            console.log(
-              '✅ Created payment record for product subscription',
-            );
+            console.log('✅ Created payment record for product subscription');
           }
 
           // Send email notification for product subscription payment

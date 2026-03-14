@@ -39,6 +39,7 @@ import { supportRoutes } from '../modules/support/support.routes';
 import { gymRoutes } from '../modules/gym/gym.routes';
 import { ordersRoutes } from '../modules/orders/orders.routes';
 import { disclaimerRoutes } from '../modules/disclaimer/disclaimer.routes';
+import { NotificationRoutes } from '../modules/notification/notification.routes';
 // import { PaymentRoutes } from '../modules/payment/payment.routes';
 // import { orderRoutes } from '../modules/order/order.routes';
 
@@ -57,10 +58,10 @@ const moduleRoutes = [
     path: '/users',
     route: UserRouters,
   },
-  // {
-  //   path: '/notifications',
-  //   route: NotificationRoutes,
-  // },
+  {
+    path: '/notifications',
+    route: NotificationRoutes,
+  },
   {
     path: '/products',
     route: productRoutes,

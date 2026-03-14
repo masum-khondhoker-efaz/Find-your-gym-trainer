@@ -78,7 +78,7 @@ const loginUserFromDB = async (payload: {
   );
 
   const refreshTokenValue = await refreshToken(
-    { id: user.id, email: user.email, role: user.role },
+    { id: user.id, email: user.email, role: user.role, purpose: 'refresh' },
     config.jwt.refresh_secret as Secret,
     config.jwt.refresh_expires_in as string,
   );
@@ -131,8 +131,12 @@ const refreshTokenFromDB = async (refreshedToken: string) => {
   const user = await prisma.user.findFirst({
     where: {
       id: decoded.id,
-      status: UserStatus.ACTIVE,
-      isDeleted: false,
+      ...(decoded.role !== UserRoleEnum.ADMIN && decoded.role !== UserRoleEnum.SUPER_ADMIN
+        ? {
+            status: UserStatus.ACTIVE,
+            isDeleted: false,
+          }
+        : {}),
     },
   });
 

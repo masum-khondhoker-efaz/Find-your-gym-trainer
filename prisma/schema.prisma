@@ -132,7 +132,7 @@ model Trainer {
   subscriptionPricingRuleTrainers SubscriptionPricingRuleTrainer[]
   orders                          Order[]
   trainerReplies                  TrainerReply[]
-  gym                             Gym?                              @relation(fields: [gymId], references: [id])
+  gym                             Gym?                             @relation(fields: [gymId], references: [id])
 
   @@map("trainers")
 }
@@ -167,11 +167,12 @@ model TrainerServiceType {
 }
 
 model Specialties {
-  id            String   @id @default(auto()) @map("_id") @db.ObjectId
-  userId        String   @db.ObjectId
-  specialtyName String   @unique
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
+  id             String   @id @default(auto()) @map("_id") @db.ObjectId
+  userId         String   @db.ObjectId
+  specialtyName  String   @unique
+  specialtyImage String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
 
   // Relationships
   user               User               @relation(fields: [userId], references: [id])
@@ -389,6 +390,7 @@ model Category {
 
   @@map("categories")
 }
+
 
 model Product {
   id     String @id @default(auto()) @map("_id") @db.ObjectId

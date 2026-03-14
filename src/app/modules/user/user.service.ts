@@ -11,6 +11,8 @@ import prisma from '../../utils/prisma';
 import Stripe from 'stripe';
 import generateOtpToken from '../../utils/generateOtpToken';
 import verifyOtp from '../../utils/verifyOtp';
+import { image } from 'pdfkit';
+import { notificationService } from '../notification/notification.service';
 
 // Initialize Stripe with your secret API key
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!);
@@ -228,6 +230,7 @@ const getMyProfileFromDB = async (id: string) => {
     },
     select: {
       id: true,
+      role: true,
       fullName: true,
       email: true,
       phoneNumber: true,
@@ -263,6 +266,16 @@ const getMyProfileFromDB = async (id: string) => {
   });
   if (!Profile) {
     throw new AppError(httpStatus.NOT_FOUND, 'Profile not found');
+  }
+  if(Profile.role === UserRoleEnum.ADMIN || Profile.role === UserRoleEnum.SUPER_ADMIN) {
+    return {
+      id: Profile.id,
+      fullName: Profile.fullName,
+      email: Profile.email,
+      phoneNumber: Profile.phoneNumber,
+      address: Profile.address,
+      image: Profile.image,
+    }
   }
 
   // const trainerProfile = Profile.trainers[0];
@@ -321,19 +334,19 @@ const getMyTrainerProfileFromDB = async (id: string) => {
                   userId: true,
                   referralId: true,
                 },
-              }
-            },
-          }, 
-        appliedReferrals: {
-          select: {
-            referral: {
-              select: {
-                id: true,
-                referralCode: true,
               },
             },
           },
-        },
+          appliedReferrals: {
+            select: {
+              referral: {
+                select: {
+                  id: true,
+                  referralCode: true,
+                },
+              },
+            },
+          },
         },
       },
       gym: {
@@ -373,7 +386,8 @@ const getMyTrainerProfileFromDB = async (id: string) => {
     googlePlaceId: Profile.gym?.googlePlaceId || null,
     latitude: Profile.gym?.latitude || null,
     longitude: Profile.gym?.longitude || null,
-    appliedReferralCode: Profile.user.appliedReferrals[0]?.referral.referralCode || null, // assuming one applied referral code per user
+    appliedReferralCode:
+      Profile.user.appliedReferrals[0]?.referral.referralCode || null, // assuming one applied referral code per user
     myReferralUsedCount: Profile.user.referrals.reduce((count, referral) => {
       return count + referral.appliedReferrals.length;
     }, 0),
@@ -399,7 +413,7 @@ const getMyProfileForSellerFromDB = async (id: string) => {
   };
 };
 
-const updateMyProfileIntoDB = async (id: string, payload: any) => {
+const updateMyProfileIntoDB = async (id: string, payload: any, role: UserRoleEnum) => {
   const userData = payload;
 
   // update user data
@@ -435,6 +449,16 @@ const updateMyProfileIntoDB = async (id: string, payload: any) => {
   if (!updatedUser) {
     throw new AppError(httpStatus.NOT_FOUND, 'User not found after update');
   }
+
+  if (role === UserRoleEnum.SUPER_ADMIN || role === UserRoleEnum.ADMIN) {
+    // For admin users, ensure the profile is marked as complete
+    return {
+      fullName: updatedUser.fullName,
+      phoneNumber: updatedUser.phoneNumber,
+      address: updatedUser.address,
+    }
+  }
+
 
   // const userWithOptionalPassword = updatedUser as UserWithOptionalPassword;
   // delete userWithOptionalPassword.password;
@@ -474,6 +498,9 @@ const updateTrainerProfileIntoDB = async (
   // 1️⃣ Find trainer by userId (ownership check)
   const existingTrainer = await prisma.trainer.findUnique({
     where: { userId },
+    include: {
+      gym: true,
+    },
   });
 
   if (!existingTrainer) {
@@ -506,9 +533,17 @@ const updateTrainerProfileIntoDB = async (
   const hasLongitude = payload.longitude !== undefined;
 
   const hasAnyGymField =
-    hasGymName || hasGymAddress || hasGooglePlaceId || hasLatitude || hasLongitude;
+    hasGymName ||
+    hasGymAddress ||
+    hasGooglePlaceId ||
+    hasLatitude ||
+    hasLongitude;
   const hasAllGymFields =
-    hasGymName && hasGymAddress && hasGooglePlaceId && hasLatitude && hasLongitude;
+    hasGymName &&
+    hasGymAddress &&
+    hasGooglePlaceId &&
+    hasLatitude &&
+    hasLongitude;
 
   if (hasAnyGymField && !hasAllGymFields) {
     throw new AppError(
@@ -516,8 +551,6 @@ const updateTrainerProfileIntoDB = async (
       'gymName, gymAddress, googlePlaceId, latitude, and longitude must all be provided together.',
     );
   }
-
-  
 
   // 3️⃣ Transaction for consistency
   const result = await prisma.$transaction(async tx => {
@@ -547,6 +580,19 @@ const updateTrainerProfileIntoDB = async (
     const updatedTrainer = await tx.trainer.update({
       where: { userId: existingTrainer.userId },
       data: updateData,
+      include: {
+        trainerSpecialties: {
+          include: {
+            specialty: true,
+          },
+        },
+        trainerServiceTypes: {
+          include: {
+            serviceType: true,
+          },
+        },
+        gym: true,
+      },
     });
 
     // 4️⃣ Update service types (if provided)
@@ -581,6 +627,12 @@ const updateTrainerProfileIntoDB = async (
 
     return updatedTrainer;
   });
+
+  await notificationService.sendNotification(
+    'Profile Updated',
+    'Your trainer profile has been updated successfully.',
+    userId,
+  );
 
   return result;
 };
@@ -821,7 +873,7 @@ const verifyOtpInDB = async (bodyData: {
   );
 
   const refreshTokenValue = await refreshToken(
-    { id: updatedUser.id, email: updatedUser.email, role: updatedUser.role },
+    { id: updatedUser.id, email: updatedUser.email, role: updatedUser.role, purpose: 'refresh' },
     config.jwt.refresh_secret as Secret,
     config.jwt.refresh_expires_in as string,
   );
@@ -953,6 +1005,7 @@ const socialLoginIntoDB = async (payload: SocialLoginPayload) => {
       id: userRecord.id,
       email: userRecord.email,
       role: userRecord.role,
+      purpose: 'refresh',
     },
     config.jwt.refresh_secret as Secret,
     config.jwt.refresh_expires_in as string,
@@ -1045,7 +1098,6 @@ const updateProfileImageIntoDB = async (
 
   return updatedUser;
 };
-
 
 const trainerRegisterUserIntoDB = async (
   userId: string,

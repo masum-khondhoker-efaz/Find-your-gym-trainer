@@ -2,7 +2,6 @@ import express from 'express';
 import auth from '../../middlewares/auth';
 import validateRequest from '../../middlewares/validateRequest';
 import { trainersController } from './trainers.controller';
-import { trainersValidation } from './trainers.validation';
 import { UserRoleEnum } from '@prisma/client';
 import checkSubscriptionForTrainers from '../../middlewares/checkSubscriptionForSalonOwners';
 

@@ -2,6 +2,7 @@ import httpStatus from 'http-status';
 import sendResponse from '../../utils/sendResponse';
 import catchAsync from '../../utils/catchAsync';
 import { userSubscriptionService } from './userSubscription.service';
+import { ISearchAndFilterOptions } from '../../interface/pagination.type';
 
 const createUserSubscription = catchAsync(async (req, res) => {
   const user = req.user as any;
@@ -48,12 +49,14 @@ const getUserSubscriptionList = catchAsync(async (req, res) => {
   const user = req.user as any;
   const result = await userSubscriptionService.getUserSubscriptionListFromDb(
     user.id,
+    req.query as ISearchAndFilterOptions
   );
   sendResponse(res, {
     statusCode: httpStatus.OK,
     success: true,
     message: 'UserSubscription list retrieved successfully',
-    data: result,
+    data: result.data,
+    meta: result.meta,
   });
 });
 

@@ -40,6 +40,7 @@ export interface ISearchAndFilterOptions extends IPaginationOptions {
   distanceInKm?: number | string;
   priceMin?: number | string;
   priceMax?: number | string;
+  amount?: number | string;
   discountPriceMin?: number | string;
   discountPriceMax?: number | string;
   rating?: number | string;
@@ -51,6 +52,9 @@ export interface ISearchAndFilterOptions extends IPaginationOptions {
   currentState?: string;
   year?: number | string;
   month?: number | string;
+  totalReferrals?: number | string;
+  totalReferralsMax?: number | string;
+  totalReferralsMin?: number | string;
 
   // User-related filters
   userStatus?: string;
@@ -105,4 +109,5 @@ export interface ISearchAndFilterOptions extends IPaginationOptions {
 
   // order-related filters
   paymentStatus?: string;
+  isRead?: boolean | string;
 }

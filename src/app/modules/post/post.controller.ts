@@ -17,6 +17,10 @@ const createPost = catchAsync(async (req, res) => {
 
   // Upload to DigitalOcean
   const fileUrl = await uploadFileToS3(file, 'post-media');
+  if(!fileUrl){
+    throw new AppError(httpStatus.BAD_REQUEST, 'Post image upload failed. Please try again.');
+  }
+
   const result = await postService.createPostIntoDb(user.id, {
     ...req.body,
     image: fileUrl,
