@@ -6,14 +6,10 @@ import { serviceTypesRoutes } from '../modules/serviceTypes/serviceTypes.routes'
 import { termAndConditionRoutes } from '../modules/termAndCondition/termAndCondition.routes';
 import { privacyPolicyRoutes } from '../modules/privacyPolicy/privacyPolicy.routes';
 import { reviewRoutes } from '../modules/review/review.routes';
-// import { categoryRoutes } from '../modules/category/category.routes';
 
 import { aboutUsRoutes } from '../modules/aboutUs/aboutUs.routes';
-// import { helpAndSupportRoutes } from '../modules/helpAndSupport/helpAndSupport.routes';
 import { faqRoutes } from '../modules/faq/faq.routes';
 
-// import { checkoutRoutes } from '../modules/checkout/checkout.routes';
-// import { favoriteProductRoutes } from '../modules/favoriteProduct/favoriteProduct.routes';
 import { foundingTeamRoutes } from '../modules/foundingTeam/foundingTeam.routes';
 import { adminRoutes } from '../modules/admin/admin.routes';
 import { socialRoutes } from '../modules/social/social.routes';
@@ -40,8 +36,7 @@ import { gymRoutes } from '../modules/gym/gym.routes';
 import { ordersRoutes } from '../modules/orders/orders.routes';
 import { disclaimerRoutes } from '../modules/disclaimer/disclaimer.routes';
 import { NotificationRoutes } from '../modules/notification/notification.routes';
-// import { PaymentRoutes } from '../modules/payment/payment.routes';
-// import { orderRoutes } from '../modules/order/order.routes';
+import { paymentRoutes } from '../modules/payment/payment.routes';
 
 const router = express.Router();
 
@@ -143,10 +138,10 @@ const moduleRoutes = [
     path: '/gyms',
     route: gymRoutes,
   },
-  // {
-  //   path: '/payments',
-  //   route: PaymentRoutes,
-  // },
+  {
+    path: '/payments',
+    route: paymentRoutes,
+  },
   {
     path: '/specialties',
     route: specialtiesRoutes,

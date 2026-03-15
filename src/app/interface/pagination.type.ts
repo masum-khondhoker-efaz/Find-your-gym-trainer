@@ -110,4 +110,7 @@ export interface ISearchAndFilterOptions extends IPaginationOptions {
   // order-related filters
   paymentStatus?: string;
   isRead?: boolean | string;
+
+  // Pricing Rule-related filters
+  type?: string;
 }

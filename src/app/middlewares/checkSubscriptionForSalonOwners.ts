@@ -33,6 +33,12 @@ const checkSubscriptionForTrainers = () => {
         }
 
         const now = new Date();
+        if(!user.subscriptionPlan) {
+          throw new AppError(
+            httpStatus.FORBIDDEN,
+            'No subscription plan found. Please subscribe to a plan to access this feature.',
+          );
+        }
 
         // Case 1: Free Plan → always allowed
         if (user.subscriptionPlan === SubscriptionPlanStatus.FREE) {

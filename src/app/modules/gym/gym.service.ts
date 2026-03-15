@@ -36,6 +36,10 @@ const NEARBY_GYM_CACHE_TTL_MS = Number(
   process.env.NEARBY_GYM_CACHE_TTL_MS || 5 * 60 * 1000,
 );
 
+const APIFY_ACTOR_TIMEOUT_MS = Number(
+  process.env.APIFY_ACTOR_TIMEOUT_MS || 5 * 60 * 1000, // 5 minutes
+);
+
 const nearbyGymsCache = new Map<
   string,
   { expiresAt: number; gyms: NormalizedGym[] }
@@ -70,6 +74,164 @@ const distanceInKm = (
 
   const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
   return earthRadiusKm * c;
+};
+
+const runApifyActor = async ({
+  lat,
+  lng,
+  radiusKm = 50,
+}: {
+  lat: number;
+  lng: number;
+  radiusKm: number;
+}) => {
+  const apifyToken = config.apify?.token;
+  const apifyActorId = config.apify?.actor_id;
+  const maxResults = config.apify?.max_results || 50;
+
+  if (!apifyToken) {
+    throw new AppError(
+      httpStatus.BAD_REQUEST,
+      'APIFY_TOKEN is not configured.',
+    );
+  }
+
+  if (!apifyActorId) {
+    throw new AppError(
+      httpStatus.BAD_REQUEST,
+      'APIFY_ACTOR_ID is not configured.',
+    );
+  }
+
+  const actorInput = {
+    customGeolocation: {
+      type: 'Point',
+      coordinates: [lng.toString(), lat.toString()],
+      radiusKm,
+      maxResults,
+    },
+    includeWebResults: false,
+    language: 'en',
+    locationQuery: 'usa',
+    maxCrawledPlacesPerSearch: 20,
+    maxImages: 0,
+    maxQuestions: 0,
+    maxReviews: 0,
+    maximumLeadsEnrichmentRecords: 0,
+    reviewsOrigin: 'all',
+    reviewsSort: 'newest',
+    scrapeContacts: false,
+    scrapeDirectories: false,
+    scrapeImageAuthors: false,
+    scrapePlaceDetailPage: false,
+    scrapeReviewsPersonalData: true,
+    scrapeSocialMediaProfiles: {
+      facebooks: false,
+      instagrams: false,
+      tiktoks: false,
+      twitters: false,
+      youtubes: false,
+    },
+    scrapeTableReservationProvider: false,
+    searchMatching: 'all',
+    searchStringsArray: ['gym', 'fitness center'],
+    skipClosedPlaces: false,
+    website: 'allPlaces',
+    placeMinimumStars: '',
+    reviewsFilterString: '',
+    allPlacesNoSearchAction: '',
+  };
+
+  console.log('[nearby-gyms] Starting Apify actor run with input:', actorInput);
+
+  // Start the actor run
+  const runUrl = `https://api.apify.com/v2/acts/${apifyActorId}/runs`;
+  const { data: runData } = await axios.post(runUrl, actorInput, {
+    headers: {
+      Authorization: `Bearer ${apifyToken}`,
+    },
+  });
+
+  const runId = runData.data.id;
+  console.log('[nearby-gyms] Actor run started with ID:', runId);
+
+  // Wait for the run to complete
+  let runStatus = runData.data.status;
+  let attempts = 0;
+  const maxAttempts = Math.ceil(APIFY_ACTOR_TIMEOUT_MS / 5000); // Check every 5 seconds
+
+  while (runStatus !== 'SUCCEEDED' && runStatus !== 'FAILED' && attempts < maxAttempts) {
+    await new Promise(resolve => setTimeout(resolve, 5000)); // Wait 5 seconds before checking again
+
+    const statusUrl = `https://api.apify.com/v2/acts/${apifyActorId}/runs/${runId}`;
+    const { data: statusData } = await axios.get(statusUrl, {
+      headers: {
+        Authorization: `Bearer ${apifyToken}`,
+      },
+    });
+
+    runStatus = statusData.data.status;
+    attempts++;
+    console.log(`[nearby-gyms] Actor run status: ${runStatus} (attempt ${attempts}/${maxAttempts})`);
+  }
+
+  if (runStatus !== 'SUCCEEDED') {
+    throw new AppError(
+      httpStatus.INTERNAL_SERVER_ERROR,
+      `Apify actor run failed or timed out. Status: ${runStatus}`,
+    );
+  }
+
+  console.log('[nearby-gyms] Actor run completed successfully');
+
+  // Get the dataset ID from the run
+  const statusUrl = `https://api.apify.com/v2/acts/${apifyActorId}/runs/${runId}`;
+  const { data: finalRunData } = await axios.get(statusUrl, {
+    headers: {
+      Authorization: `Bearer ${apifyToken}`,
+    },
+  });
+
+  const datasetId = finalRunData.data.defaultDatasetId;
+
+  if (!datasetId) {
+    throw new AppError(
+      httpStatus.INTERNAL_SERVER_ERROR,
+      'No dataset returned from Apify actor run.',
+    );
+  }
+
+  console.log('[nearby-gyms] Dataset ID from actor run:', datasetId);
+
+  return datasetId;
+};
+
+const fetchGymsFromApifyDataset = async (datasetId: string) => {
+  const apifyToken = config.apify?.token;
+
+  if (!apifyToken) {
+    throw new AppError(
+      httpStatus.BAD_REQUEST,
+      'APIFY_TOKEN is not configured.',
+    );
+  }
+
+  const url = `https://api.apify.com/v2/datasets/${datasetId}/items`;
+
+  const { data } = await axios.get(url, {
+    headers: {
+      Authorization: `Bearer ${apifyToken}`,
+    },
+    params: {
+      clean: true,
+    },
+  });
+
+  if (!Array.isArray(data)) {
+    return [];
+  }
+
+  return data;
 };
 
 type ApifyGymItem = {
@@ -140,17 +302,6 @@ const fetchNearbyGymsFromApify = async ({
   lng,
   radiusKm = 50,
 }: NearbyGymsParams) => {
-  const apifyToken = config.apify?.token;
-  const apifyDatasetId =
-   config.apify?.dataset_id;
-
-  if (!apifyToken) {
-    throw new AppError(
-      httpStatus.BAD_REQUEST,
-      'APIFY_TOKEN is not configured.',
-    );
-  }
-
   const targetLat = Number(lat);
   const targetLng = Number(lng);
 
@@ -160,13 +311,6 @@ const fetchNearbyGymsFromApify = async ({
       'latitude and longitude must be valid numbers',
     );
   }
-
-  // console.log('[nearby-gyms] Apify request input:', {
-  //   lat: targetLat,
-  //   lng: targetLng,
-  //   radiusKm,
-  //   datasetId: apifyDatasetId,
-  // });
 
   const cacheKey = buildNearbyGymCacheKey(lat, lng, radiusKm);
   const cachedData = nearbyGymsCache.get(cacheKey);
@@ -179,19 +323,19 @@ const fetchNearbyGymsFromApify = async ({
     return cachedData.gyms;
   }
 
-  const url = `https://api.apify.com/v2/datasets/${apifyDatasetId}/items`;
-
-  const { data } = await axios.get(url, {
-    params: {
-      token: apifyToken,
-      clean: true,
-    },
+  console.log('[nearby-gyms] cache miss, running actor', {
+    cacheKey,
   });
 
-  if (!Array.isArray(data)) {
-    // console.log('[nearby-gyms] Apify response is not an array');
-    return [];
-  }
+  // Run the actor to fetch fresh data for the user's location
+  const datasetId = await runApifyActor({
+    lat: targetLat,
+    lng: targetLng,
+    radiusKm,
+  });
+
+  // Fetch data from the dataset generated by the actor
+  const data = await fetchGymsFromApifyDataset(datasetId);
 
   const normalized = data
     .map((item: ApifyGymItem) => normalizeApifyGym(item))
@@ -206,38 +350,24 @@ const fetchNearbyGymsFromApify = async ({
     return true;
   });
 
-  const nearbyGyms = uniqueGyms.filter(gym => {
-    const dist = distanceInKm(targetLat, targetLng, gym.latitude, gym.longitude);
-    return dist <= radiusKm;
+  console.log('[nearby-gyms] Actor data fetched:', {
+    totalRaw: data.length,
+    totalNormalized: normalized.length,
+    totalUnique: uniqueGyms.length,
   });
 
-  // console.log('[nearby-gyms] Apify gyms fetched:', {
-  //   totalRaw: data.length,
-  //   totalNormalized: normalized.length,
-  //   totalUnique: uniqueGyms.length,
-  //   totalNearby: nearbyGyms.length,
-  // });
-
-  const gymsToCache = nearbyGyms.length === 0 ? uniqueGyms : nearbyGyms;
   nearbyGymsCache.set(cacheKey, {
-    gyms: gymsToCache,
+    gyms: uniqueGyms,
     expiresAt: Date.now() + NEARBY_GYM_CACHE_TTL_MS,
   });
 
-  console.log('[nearby-gyms] cache miss', {
+  console.log('[nearby-gyms] cache updated', {
     cacheKey,
-    cachedGyms: gymsToCache.length,
+    cachedGyms: uniqueGyms.length,
     ttlMs: NEARBY_GYM_CACHE_TTL_MS,
   });
 
-  if (nearbyGyms.length === 0) {
-    // console.log(
-    //   '[nearby-gyms] No gyms in radius; returning unfiltered unique dataset gyms',
-    // );
-    return uniqueGyms;
-  }
-
-  return nearbyGyms;
+  return uniqueGyms;
 };
 
 const getNearbyGymsFromDbAndApify = async ({

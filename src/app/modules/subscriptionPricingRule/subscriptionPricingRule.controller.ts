@@ -2,6 +2,7 @@ import httpStatus from 'http-status';
 import sendResponse from '../../utils/sendResponse';
 import catchAsync from '../../utils/catchAsync';
 import { subscriptionPricingRuleService } from './subscriptionPricingRule.service';
+import { ISearchAndFilterOptions } from '../../interface/pagination.type';
 
 const createSubscriptionPricingRule = catchAsync(async (req, res) => {
   const user = req.user as any;
@@ -23,12 +24,14 @@ const getSubscriptionPricingRuleList = catchAsync(async (req, res) => {
   const result =
     await subscriptionPricingRuleService.getSubscriptionPricingRuleListFromDb(
       user.id,
+      req.query as ISearchAndFilterOptions
     );
   sendResponse(res, {
     statusCode: httpStatus.OK,
     success: true,
     message: 'Subscription pricing rules retrieved successfully',
-    data: result,
+    data: result.data,
+    meta: result.meta,
   });
 });
 

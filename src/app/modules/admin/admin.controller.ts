@@ -152,6 +152,33 @@ const getAllNewsletterSubscribers = catchAsync(async (req, res) => {
   });
 });
 
+const getAllAdmins = catchAsync(async (req, res) => {
+  const user = req.user as any;
+  const result = await adminService.getAllAdminsFromDb(user.id, req.query as ISearchAndFilterOptions);
+  sendResponse(res, {
+    statusCode: httpStatus.OK,
+    success: true,
+    message: 'Admin list retrieved successfully',
+    data: result.data,
+    meta: result.meta,
+  });
+});
+
+
+const createAdmin = catchAsync(async (req, res) => {
+  const user = req.user as any;
+  const result = await adminService.createAdminIntoDb(
+    user.id,
+    req.body,
+  );
+  sendResponse(res, {
+    statusCode: httpStatus.OK,
+    success: true,
+    message: 'Admin created successfully',
+    data: result,
+  });
+});
+
 const updateUserStatus = catchAsync(async (req, res) => {
   const user = req.user as any;
   const result = await adminService.updateUserStatusIntoDb(
@@ -206,6 +233,8 @@ export const adminController = {
   getAllOrders,
   getAOrder,
   getAllNewsletterSubscribers,
+  getAllAdmins,
+  createAdmin,
   updateUserStatus,
   updatePostStatus,
   deleteAdmin,

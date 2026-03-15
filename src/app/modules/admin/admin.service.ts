@@ -4,6 +4,7 @@ import { UserRoleEnum, UserStatus, PaymentStatus } from '@prisma/client';
 import AppError from '../../errors/AppError';
 import httpStatus from 'http-status';
 import { ISearchAndFilterOptions } from '../../interface/pagination.type';
+import * as bcrypt from 'bcrypt';
 import { calculatePagination } from '../../utils/pagination';
 import {
   buildSearchQuery,
@@ -16,6 +17,7 @@ import {
   getPaginationQuery,
 } from '../../utils/pagination';
 import { notificationService } from '../notification/notification.service';
+import admin from '../../utils/firebase';
 
 const getDashboardStatsFromDb = async (
   userId: string,
@@ -46,7 +48,6 @@ const getDashboardStatsFromDb = async (
       isActive: true,
     },
   });
-
 
   const targetEarningsYear: number | undefined =
     typeof earningsYearNum === 'number' && !Number.isNaN(earningsYearNum)
@@ -730,43 +731,43 @@ const getAllProductsFromDb = async (
   });
 
   // Flatten the products to include trainer info at the top level
-    const flattenedProducts = products.map(product => {
-      // const trainer = product.user?.trainers?.[0];
-      return {
-        id: product.id,
-        productName: product.productName,
-        productStatus: product.status,
-        description: product.description,
-        durationWeeks: product.durationWeeks,
-        bulletPoints: product.bulletPoints,
-        totalPurchased: product.totalPurchased,
-        views: product.views,
-        price: product.price,
-        capacity: product.capacity,
-        avgRating: product.avgRating,
-        ratingCount: product.ratingCount,
-        productImage: product.productImage,
-        productVideo: product.productVideo,
-        agreementPdf: product.agreementPdf,
-        isActive: product.isActive,
-        createdAt: product.createdAt,
-        updatedAt: product.updatedAt,
-        trainer: // trainer ? 
-        {
-          trainerId: product.user.id,
-          trainerName: product.user.fullName,
-          trainerEmail: product.user.email,
-          trainerImage: product.user.image,
-          // specialtyId: trainer.specialtyId,
-          // portfolio: trainer.portfolio,
-          // certifications: trainer.certifications,
-          // experienceYears: trainer.experienceYears,
-          // specialty: trainer.specialty,
-        },
-      };
-    });
+  const flattenedProducts = products.map(product => {
+    // const trainer = product.user?.trainers?.[0];
+    return {
+      id: product.id,
+      productName: product.productName,
+      productStatus: product.status,
+      description: product.description,
+      durationWeeks: product.durationWeeks,
+      bulletPoints: product.bulletPoints,
+      totalPurchased: product.totalPurchased,
+      views: product.views,
+      price: product.price,
+      capacity: product.capacity,
+      avgRating: product.avgRating,
+      ratingCount: product.ratingCount,
+      productImage: product.productImage,
+      productVideo: product.productVideo,
+      agreementPdf: product.agreementPdf,
+      isActive: product.isActive,
+      createdAt: product.createdAt,
+      updatedAt: product.updatedAt,
+      // trainer ?
+      trainer: {
+        trainerId: product.user.id,
+        trainerName: product.user.fullName,
+        trainerEmail: product.user.email,
+        trainerImage: product.user.image,
+        // specialtyId: trainer.specialtyId,
+        // portfolio: trainer.portfolio,
+        // certifications: trainer.certifications,
+        // experienceYears: trainer.experienceYears,
+        // specialty: trainer.specialty,
+      },
+    };
+  });
 
-    return formatPaginationResponse(flattenedProducts, total, page, limit);
+  return formatPaginationResponse(flattenedProducts, total, page, limit);
 };
 
 const updateProductVisibilityIntoDb = async (
@@ -798,9 +799,7 @@ const updateProductVisibilityIntoDb = async (
   }
 
   await notificationService.sendNotification(
-    updatedProduct.isActive
-      ? 'Product Approved'
-      : 'Product Blocked',
+    updatedProduct.isActive ? 'Product Approved' : 'Product Blocked',
     updatedProduct.isActive
       ? `Your product ${updatedProduct.productName} has been approved and is now visible.`
       : `Your product ${updatedProduct.productName} has been blocked by admin.`,
@@ -1029,6 +1028,110 @@ const getAllNewsletterSubscribersFromDb = async (
   return formatPaginationResponse(subscribers, total, page, limit);
 };
 
+const getAllAdminsFromDb = async (
+  userId: string,
+  options: ISearchAndFilterOptions,
+) => {
+  const { page, limit, skip, sortBy, sortOrder } = calculatePagination(options);
+  const searchFields = ['fullName', 'email'];
+  const searchQuery = buildSearchQuery({
+    searchTerm: options.searchTerm,
+    searchFields,
+  });
+  const filterFields: Record<string, any> = {
+    ...(options.fullName && {
+      fullName: {
+        contains: options.fullName,
+        mode: 'insensitive' as const,
+      },
+    }),
+    ...(options.email && {
+      email: {
+        contains: options.email,
+        mode: 'insensitive' as const,
+      },
+    }),
+  };
+  const filterQuery = buildFilterQuery(filterFields);
+  const whereQuery = combineQueries(
+    {
+      role: UserRoleEnum.ADMIN,
+      status: UserStatus.ACTIVE,
+      NOT: {
+        role: UserRoleEnum.SUPER_ADMIN,
+      },
+    },
+    searchQuery,
+    filterQuery,
+  );
+  const orderBy = getPaginationQuery(sortBy, sortOrder).orderBy;
+  const total = await prisma.user.count({ where: whereQuery });
+  const admins = await prisma.user.findMany({
+    where: whereQuery,
+    skip,
+    take: limit,
+    orderBy,
+    select: {
+      id: true,
+      fullName: true,
+      email: true,
+      phoneNumber: true,
+      status: true,
+      createdAt: true,
+    },
+  });
+  return formatPaginationResponse(admins, total, page, limit);
+};
+
+const createAdminIntoDb = async (
+  userId: string,
+  payload: { fullName: string; email: string; password: string },
+) => {
+  const adminData = {
+    fullName: payload.fullName,
+    email: payload.email,
+    password: payload.password,
+    role: UserRoleEnum.ADMIN,
+    status: UserStatus.ACTIVE,
+    isProfileComplete: true,
+    isVerified: true,
+  };
+  const existingUser = await prisma.user.findUnique({
+    where: { email: payload.email },
+  });
+  if (existingUser) {
+    throw new AppError(httpStatus.BAD_REQUEST, 'Email already in use');
+  }
+
+  // Hash the password before storing (in production, use a proper hashing function like bcrypt)
+  const hashedPassword = await bcrypt.hash(payload.password, 12);
+  adminData.password = hashedPassword;
+
+  const newAdmin = await prisma.user.create({
+    data: adminData,
+  });
+  if (!newAdmin) {
+    throw new AppError(httpStatus.BAD_REQUEST, 'Failed to create admin');
+  }
+  const adminModel = await prisma.admin.create({
+    data: {
+      userId: newAdmin.id,
+      role: UserRoleEnum.ADMIN,
+      isSuperAdmin: false,
+      systemOwner: false,
+    },
+  });
+  if (!adminModel) {
+    // Rollback user creation if admin creation fails
+    await prisma.user.delete({ where: { id: newAdmin.id } });
+    throw new AppError(
+      httpStatus.BAD_REQUEST,
+      'Failed to create admin profile',
+    );
+  }
+  return newAdmin;
+};
+
 const updateUserStatusIntoDb = async (userId: string) => {
   const user = await prisma.user.findUnique({
     where: { id: userId },
@@ -1080,15 +1183,27 @@ const updatePostStatusIntoDb = async (userId: string, postId: string) => {
 const deleteAdminItemFromDb = async (userId: string, adminId: string) => {
   const deletedItem = await prisma.admin.delete({
     where: {
-      id: adminId,
-      userId: userId,
+      userId: adminId,
+      role: UserRoleEnum.ADMIN,
+      isSuperAdmin: false,
+      systemOwner: false,
     },
   });
   if (!deletedItem) {
     throw new AppError(httpStatus.BAD_REQUEST, 'adminId, not deleted');
   }
 
-  return deletedItem;
+  // delete the user associated with the admin profile
+  const deletedUser = await prisma.user.delete({
+    where: {
+      id: deletedItem.userId,
+    },
+  });
+  if (!deletedUser) {
+    throw new AppError(httpStatus.BAD_REQUEST, 'Failed to delete admin item');
+  }
+
+  return deletedUser;
 };
 
 export const adminService = {
@@ -1104,6 +1219,8 @@ export const adminService = {
   getAllOrdersFromDb,
   getAOrderFromDb,
   getAllNewsletterSubscribersFromDb,
+  getAllAdminsFromDb,
+  createAdminIntoDb,
   updateUserStatusIntoDb,
   updatePostStatusIntoDb,
   deleteAdminItemFromDb,

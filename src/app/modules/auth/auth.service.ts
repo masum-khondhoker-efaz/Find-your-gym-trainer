@@ -100,6 +100,8 @@ const loginUserFromDB = async (payload: {
     response.subscriptionPlan = user.subscriptionPlan;
     response.isSubscribed = user.isSubscribed;
     response.subscriptionEnd = user.subscriptionEnd;
+    response.onBoarding = user.onBoarding;
+    response.stripeAccountId = user.stripeAccountId;
   }
 
   return response;

@@ -29,6 +29,17 @@ const getSubscriptionOfferList = catchAsync(async (req, res) => {
   });
 });
 
+const getAllSubscriptionOfferList = catchAsync(async (req, res) => {
+  const user = req.user as any;
+  const result = await subscriptionOfferService.getAllSubscriptionOfferListFromDb();
+  sendResponse(res, {
+    statusCode: httpStatus.OK,
+    success: true,
+    message: 'All SubscriptionOffer list retrieved successfully',
+    data: result.data,
+  });
+});
+
 const getSubscriptionOfferById = catchAsync(async (req, res) => {
   const user = req.user as any;
   const result = await subscriptionOfferService.getSubscriptionOfferByIdFromDb(req.params.id);
@@ -65,6 +76,7 @@ const deleteSubscriptionOffer = catchAsync(async (req, res) => {
 export const subscriptionOfferController = {
   createSubscriptionOffer,
   getSubscriptionOfferList,
+  getAllSubscriptionOfferList,
   getSubscriptionOfferById,
   updateSubscriptionOffer,
   deleteSubscriptionOffer,

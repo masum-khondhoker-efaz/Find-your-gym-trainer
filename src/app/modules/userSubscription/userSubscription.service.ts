@@ -1198,7 +1198,6 @@ const createCheckoutSessionInStripe = async (
   userId: string,
   data: {
     subscriptionOfferId: string;
-    pricingRuleId?: string; // Optional pricing rule
     referralCode?: string; // Optional referral code for discount
     // successUrl: string;
     // cancelUrl: string;
@@ -1244,54 +1243,25 @@ const createCheckoutSessionInStripe = async (
     });
   }
 
-  // Check for referral code discount first (takes priority)
+  // Process referral code discount if provided by user
   let referralDiscount = null;
-  let stripeCouponId: string | undefined = undefined;
-  let discountAmount = 0;
-
   if (data.referralCode) {
     try {
       referralDiscount = await processReferralCodeDiscount(
         userId,
         data.referralCode,
       );
-      stripeCouponId = referralDiscount.stripeCouponId;
-      discountAmount = referralDiscount.discountAmount;
     } catch (error) {
       // If referral code processing fails, throw the error to the client
       throw error;
     }
   }
 
-  // Check for applicable pricing rules (only if no referral code applied)
+  // Auto-detect the currently active pricing rule (always check)
   let applicablePricingRule = null;
-
-  if (!referralDiscount && data.pricingRuleId) {
-    // User selected a specific pricing rule
-    applicablePricingRule = await prisma.subscriptionPricingRule.findUnique({
-      where: { id: data.pricingRuleId },
-      include: {
-        subscriptionPricingRuleTrainers: true,
-      },
-    });
-
-    if (!applicablePricingRule || !applicablePricingRule.isActive) {
-      throw new AppError(
-        httpStatus.BAD_REQUEST,
-        'Selected pricing rule is not valid or inactive',
-      );
-    }
-
-    // Validate rule eligibility
-    await validatePricingRuleEligibility(
-      userId,
-      applicablePricingRule,
-      user.trainers?.[0]?.userId,
-    );
-
-    stripeCouponId = applicablePricingRule.stripeCouponId || undefined;
-  } else if (user.trainers && user.trainers.length > 0) {
-    // Auto-check for applicable rules for trainers
+  
+  // Get the best applicable pricing rule for this user
+  if (user.trainers && user.trainers.length > 0) {
     const applicableRules = await getApplicablePricingRulesForUser(
       userId,
       data.subscriptionOfferId,
@@ -1299,11 +1269,42 @@ const createCheckoutSessionInStripe = async (
     );
 
     if (applicableRules.length > 0) {
-      // Use the best discount (first in sorted list)
+      // Use the best/first active pricing rule
       applicablePricingRule = applicableRules[0];
-      stripeCouponId = applicablePricingRule.stripeCouponId || undefined;
-      discountAmount = applicablePricingRule.discountAmount || 0;
     }
+  }
+
+  // Combine discounts: calculate total savings
+  let totalDiscountAmount = 0;
+  let stripeCouponId: string | undefined = undefined;
+
+  const referralDiscountAmount = referralDiscount?.discountAmount || 0;
+  const pricingRuleDiscountAmount = applicablePricingRule?.discountAmount || 0;
+  totalDiscountAmount = referralDiscountAmount + pricingRuleDiscountAmount;
+
+  // Apply combined discount if both exist
+  if (referralDiscount && applicablePricingRule && totalDiscountAmount > 0) {
+    // Create a single combined coupon with total discount
+    try {
+      const combinedCoupon = await stripe.coupons.create({
+        amount_off: Math.round(totalDiscountAmount * 100), // Convert to cents
+        currency: 'usd',
+        name: `Combined: Referral + Vitakinetic offer`,
+        duration: 'repeating',
+        duration_in_months: 1, // Apply for first billing cycle only
+      });
+      stripeCouponId = combinedCoupon.id;
+    } catch (error: any) {
+      console.error('Combined coupon creation failed:', error.message);
+      // If combined coupon creation fails, use referral only as fallback
+      stripeCouponId = referralDiscount.stripeCouponId;
+    }
+  } else if (referralDiscount?.stripeCouponId) {
+    // Only referral discount
+    stripeCouponId = referralDiscount.stripeCouponId;
+  } else if (applicablePricingRule?.stripeCouponId) {
+    // Only pricing rule discount
+    stripeCouponId = applicablePricingRule.stripeCouponId;
   }
 
   // Create checkout session
@@ -1325,6 +1326,7 @@ const createCheckoutSessionInStripe = async (
       pricingRuleId: applicablePricingRule?.id || '',
       referralId: referralDiscount?.referralId || '',
       referralCode: referralDiscount?.referralCode || '',
+      totalDiscountApplied: totalDiscountAmount.toString(),
     },
     subscription_data: {
       metadata: {
@@ -1333,11 +1335,12 @@ const createCheckoutSessionInStripe = async (
         pricingRuleId: applicablePricingRule?.id || '',
         referralId: referralDiscount?.referralId || '',
         referralCode: referralDiscount?.referralCode || '',
+        totalDiscountApplied: totalDiscountAmount.toString(),
       },
     },
   };
 
-  // Apply coupon if available
+  // Apply discount coupon if available
   if (stripeCouponId) {
     sessionConfig.discounts = [
       {
@@ -1351,26 +1354,84 @@ const createCheckoutSessionInStripe = async (
   return {
     sessionId: session.id,
     url: session.url,
-    appliedDiscount: referralDiscount
-      ? {
-          type: 'referral',
-          code: referralDiscount.referralCode,
-          discountAmount: referralDiscount.discountAmount,
-          originalPrice: subscriptionOffer.price,
-          discountedPrice: subscriptionOffer.price - referralDiscount.discountAmount,
-        }
-      : applicablePricingRule
-      ? {
-          type: 'pricing_rule',
-          name: applicablePricingRule.name,
-          discountAmount: applicablePricingRule.discountAmount,
-          originalPrice: subscriptionOffer.price,
-          discountedPrice: applicablePricingRule.discountAmount
-            ? subscriptionOffer.price - applicablePricingRule.discountAmount
-            : subscriptionOffer.price,
-        }
-      : null,
+    appliedDiscount:
+      referralDiscount && applicablePricingRule
+        ? {
+            type: 'combined',
+            referral: {
+              code: referralDiscount.referralCode,
+              discountAmount: referralDiscount.discountAmount,
+            },
+            pricingRule: {
+              name: applicablePricingRule.name,
+              discountAmount: applicablePricingRule.discountAmount,
+            },
+            totalDiscountAmount: totalDiscountAmount,
+            originalPrice: subscriptionOffer.price,
+            finalPrice: Math.max(0, subscriptionOffer.price - totalDiscountAmount),
+          }
+        : referralDiscount
+        ? {
+            type: 'referral',
+            code: referralDiscount.referralCode,
+            discountAmount: referralDiscount.discountAmount,
+            originalPrice: subscriptionOffer.price,
+            finalPrice: subscriptionOffer.price - referralDiscount.discountAmount,
+          }
+        : applicablePricingRule
+        ? {
+            type: 'Vitakinetic offer',
+            name: applicablePricingRule.name,
+            discountAmount: applicablePricingRule.discountAmount,
+            originalPrice: subscriptionOffer.price,
+            finalPrice: Math.max(
+              0,
+              subscriptionOffer.price - (applicablePricingRule.discountAmount || 0),
+            ),
+          }
+        : null,
   };
+};
+
+// Helper function to get the currently active pricing rule
+const getActiveSubscriptionPricingRule = async (
+  subscriptionOfferId: string,
+): Promise<any | null> => {
+  const now = new Date();
+
+  // Find the most recently active pricing rule that's currently valid
+  const activeRule = await prisma.subscriptionPricingRule.findFirst({
+    where: {
+      subscriptionOfferId: subscriptionOfferId,
+      isActive: true,
+      OR: [
+        // TIME_BASED rules that are currently within their date range
+        {
+          type: PricingRuleType.TIME_BASED,
+          startDate: { lte: now },
+          endDate: { gte: now },
+        },
+        // FIRST_COME rules with available slots
+        {
+          type: PricingRuleType.FIRST_COME,
+          maxSubscribers: {
+            gt: prisma.subscriptionPricingRule.fields.usageCount,
+          },
+        },
+        // REFERRAL rules
+        {
+          type: PricingRuleType.REFERRAL,
+        },
+      ],
+    },
+    orderBy: [
+      { discountAmount: 'desc' },
+      { createdAt: 'desc' },
+    ],
+    take: 1,
+  });
+
+  return activeRule;
 };
 
 // Helper function to validate pricing rule eligibility

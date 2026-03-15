@@ -13,6 +13,7 @@ import generateOtpToken from '../../utils/generateOtpToken';
 import verifyOtp from '../../utils/verifyOtp';
 import { image } from 'pdfkit';
 import { notificationService } from '../notification/notification.service';
+import { on } from 'node:events';
 
 // Initialize Stripe with your secret API key
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!);
@@ -278,6 +279,21 @@ const getMyProfileFromDB = async (id: string) => {
     }
   }
 
+  if(Profile.role === UserRoleEnum.TRAINER) {
+    return {
+      id: Profile.id,
+      fullName: Profile.fullName,
+      email: Profile.email,
+      phoneNumber: Profile.phoneNumber,
+      address: Profile.address,
+      image: Profile.image,
+      bio: Profile.bio,
+      socialAccounts: Profile.socialAccounts,
+      createdAt: Profile.createdAt,
+      updatedAt: Profile.updatedAt,
+    }
+  }
+
   // const trainerProfile = Profile.trainers[0];
 
   return {
@@ -322,6 +338,8 @@ const getMyTrainerProfileFromDB = async (id: string) => {
       },
       user: {
         select: {
+          onBoarding: true,
+          stripeAccountId: true,
           referrals: {
             select: {
               id: true,
@@ -378,6 +396,8 @@ const getMyTrainerProfileFromDB = async (id: string) => {
       id: tst.serviceType.id,
       serviceName: tst.serviceType.serviceName,
     })),
+    onBoarding: Profile.user.onBoarding,
+    stripeAccountId: Profile.user.stripeAccountId,
     organizationName: Profile.orgName,
     credentialNumber: Profile.credentialNo,
     referralCode: Profile.user.referrals[0]?.referralCode || null, // assuming one referral code per user

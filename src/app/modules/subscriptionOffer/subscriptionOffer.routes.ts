@@ -16,6 +16,8 @@ router.post(
 
 router.get('/', auth(), subscriptionOfferController.getSubscriptionOfferList);
 
+router.get('/all', auth(), subscriptionOfferController.getAllSubscriptionOfferList);
+
 router.get(
   '/:id',
   auth(),

@@ -37,4 +37,11 @@ router.put(
 
 router.delete('/:id', auth(), paymentController.deletePayment);
 
+// Check trainer payment readiness
+router.get(
+  '/trainer/payment-status/:trainerId',
+  auth(),
+  paymentController.checkTrainerPaymentStatus,
+);
+
 export const paymentRoutes = router;

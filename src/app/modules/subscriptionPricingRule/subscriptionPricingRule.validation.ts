@@ -4,7 +4,7 @@ import { z } from 'zod';
 const createSchema = z.object({
   body: z.object({
     subscriptionOfferId: z.string().min(1, 'Subscription offer ID is required'),
-    name: z.string().min(1, 'Name is required'),
+    name: z.string().min(1, 'Name is required').optional(),
     type: z.nativeEnum(PricingRuleType, {
       errorMap: () => ({
         message: 'Type must be one of: FIRST_COME, SPECIFIC_TRAINER, TIME_BASED, REFERRAL',

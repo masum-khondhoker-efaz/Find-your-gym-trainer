@@ -4,6 +4,7 @@ import AppError from '../../errors/AppError';
 import httpStatus from 'http-status';
 
 import Stripe from 'stripe';
+import { ISearchAndFilterOptions } from '../../interface/pagination.type';
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, {
   apiVersion: '2025-08-27.basil',
@@ -13,7 +14,7 @@ const createSubscriptionPricingRuleIntoDb = async (
   userId: string,
   data: {
     subscriptionOfferId: string;
-    name: string;
+    name?: string;
     type: PricingRuleType;
     discountPercent?: number;
     discountAmount?: number;
@@ -40,6 +41,51 @@ const createSubscriptionPricingRuleIntoDb = async (
     );
   }
 
+  // Check for overlapping date ranges with existing rules of same type
+  if (data.type === PricingRuleType.TIME_BASED && data.startDate && data.endDate) {
+    const newStartDate = new Date(data.startDate);
+    const newEndDate = new Date(data.endDate);
+
+    const overlappingRules = await prisma.subscriptionPricingRule.findMany({
+      where: {
+        subscriptionOfferId: data.subscriptionOfferId,
+        type: data.type,
+        isActive: true,
+      },
+    });
+
+    // Check for date range overlaps
+    const hasOverlap = overlappingRules.some(existingRule => {
+      if (!existingRule.startDate || !existingRule.endDate) return false;
+      
+      // Two ranges overlap if: start2 <= end1 AND start1 <= end2
+      return newStartDate <= existingRule.endDate && existingRule.startDate <= newEndDate;
+    });
+
+    if (hasOverlap) {
+      throw new AppError(
+        httpStatus.BAD_REQUEST,
+        `A TIME_BASED pricing rule of type ${data.type} already exists for this subscription offer with overlapping date range. Please choose a different time frame.`,
+      );
+    }
+  } else if (data.type !== PricingRuleType.TIME_BASED) {
+    // For non-TIME_BASED rules (FIRST_COME, SPECIFIC_TRAINER, REFERRAL), only one active rule allowed per offer
+    const existingRules = await prisma.subscriptionPricingRule.findMany({
+      where: {
+        subscriptionOfferId: data.subscriptionOfferId,
+        type: data.type,
+        isActive: true,
+      },
+    });
+
+    if (existingRules.length > 0) {
+      throw new AppError(
+        httpStatus.BAD_REQUEST,
+        `An active pricing rule of type ${data.type} already exists for this subscription offer. Please deactivate the existing rule before creating a new one of the same type.`,
+      );
+    }
+  }
+
   // Verify subscription offer exists
   const subscriptionOffer = await prisma.subscriptionOffer.findUnique({
     where: { id: data.subscriptionOfferId },
@@ -57,7 +103,7 @@ const createSubscriptionPricingRuleIntoDb = async (
       const coupon = await stripe.coupons.create({
         amount_off: Math.round(data.discountAmount * 100), // Convert to cents
         currency: 'usd', // Update with your currency
-        name: data.name,
+        name: data.name? data.name : `Discount for ${subscriptionOffer.title}`,
         duration: 'once', // or 'repeating' / 'forever' based on your needs
         max_redemptions: data.maxSubscribers || undefined,
         redeem_by: data.endDate ? Math.floor(new Date(data.endDate).getTime() / 1000) : undefined,
@@ -78,7 +124,7 @@ const createSubscriptionPricingRuleIntoDb = async (
       data: {
         userId: userId,
         subscriptionOfferId: data.subscriptionOfferId,
-        name: data.name,
+        name: data.name? data.name : `Rule for ${subscriptionOffer.title}`,
         type: data.type,
         // discountPercent: data.discountPercent,
         discountAmount: data.discountAmount,
@@ -113,8 +159,40 @@ const createSubscriptionPricingRuleIntoDb = async (
   return result;
 };
 
-const getSubscriptionPricingRuleListFromDb = async (userId: string) => {
+const getSubscriptionPricingRuleListFromDb = async (userId: string,
+  options: ISearchAndFilterOptions
+) => {
+  const page = Math.max(1, Number(options.page) || 1);
+  const limit = Math.max(1, Number(options.limit) || 10);
+  const skip = (page - 1) * limit;
+  const sortBy = options.sortBy || 'createdAt';
+  const sortOrder = options.sortOrder || 'desc';
+
+  // Build filter conditions
+  const whereConditions: any = {};
+
+  // Filter by type if provided
+  if (options.type) {
+    whereConditions.type = options.type as PricingRuleType;
+  }
+
+  // Filter by active status if provided
+  if (options.isActive !== undefined && options.isActive !== '') {
+    whereConditions.isActive = options.isActive === 'true' || options.isActive === true;
+  }
+
+  // Filter by subscription offer if provided
+  if (options.filters?.subscriptionOfferId) {
+    whereConditions.subscriptionOfferId = options.filters.subscriptionOfferId;
+  }
+
+  // Get total count for pagination
+  const total = await prisma.subscriptionPricingRule.count({
+    where: whereConditions,
+  });
+
   const result = await prisma.subscriptionPricingRule.findMany({
+    where: whereConditions,
     include: {
       subscriptionOffer: {
         select: {
@@ -149,27 +227,49 @@ const getSubscriptionPricingRuleListFromDb = async (userId: string) => {
       },
     },
     orderBy: {
-      createdAt: 'desc',
+      [sortBy]: sortOrder,
     },
+    skip,
+    take: limit,
   });
 
   if (result.length === 0) {
-    return { message: 'No pricing rules found' };
+    return {
+      data: [],
+      meta: {
+        page,
+        limit,
+        total,
+        totalPages: Math.ceil(total / limit),
+        hasNextPage: page < Math.ceil(total / limit),
+        hasPrevPage: page > 1,
+      },
+    };
   }
 
-  return result.map(rule => ({
-    ...rule,
-    usageCount: rule.usages.length,
-    remainingSlots:
-      rule.maxSubscribers !== null
-        ? Math.max(0, rule.maxSubscribers - rule.usageCount)
-        : null,
-    trainers: rule.subscriptionPricingRuleTrainers.map(t => ({
-      id: t.trainer.userId,
-      name: t.trainer.user.fullName,
-      email: t.trainer.user.email,
+  return {
+    data: result.map(rule => ({
+      ...rule,
+      usageCount: rule.usages.length,
+      remainingSlots:
+        rule.maxSubscribers !== null
+          ? Math.max(0, rule.maxSubscribers - rule.usageCount)
+          : null,
+      trainers: rule.subscriptionPricingRuleTrainers.map(t => ({
+        id: t.trainer.userId,
+        name: t.trainer.user.fullName,
+        email: t.trainer.user.email,
+      })),
     })),
-  }));
+    meta: {
+      page,
+      limit,
+      total,
+      totalPages: Math.ceil(total / limit),
+      hasNextPage: page < Math.ceil(total / limit),
+      hasPrevPage: page > 1,
+    },
+  };
 };
 
 const getSubscriptionPricingRuleByIdFromDb = async (

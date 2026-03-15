@@ -17,6 +17,7 @@ import emailSender from '../../utils/emailSender';
 import AppError from '../../errors/AppError';
 import { userSubscriptionService } from '../userSubscription/userSubscription.service';
 import { notificationService } from '../notification/notification.service';
+import { transferToTrainerAccount, verifyTrainerPaymentReadiness } from '../../utils/trainerPaymentTransfer';
 
 // Initialize Stripe with your secret API key
 const stripe = new Stripe(config.stripe.stripe_secret_key as string, {
@@ -296,6 +297,42 @@ const handleWebHook = catchAsync(async (req: any, res: any) => {
                     select: { productName: true },
                   }),
                 ]);
+
+              // =================================================================
+              // TRANSFER PAYMENT TO TRAINER (if trainer exists)
+              // =================================================================
+              if (order.trainerId) {
+                const paymentAmount = session.amount_total ? session.amount_total : 0;
+                
+                console.log(
+                  `💸 Initiating trainer payment transfer for order ${order.id}`,
+                );
+
+                const transferResult = await transferToTrainerAccount({
+                  orderId: order.id,
+                  trainerId: order.trainerId,
+                  amount: paymentAmount,
+                  paymentIntentId: session.payment_intent as string,
+                  reason: `Payment for product: ${purchasedProduct?.productName}`,
+                });
+
+                if (transferResult.success) {
+                  console.log(
+                    `✅ Transfer successful: ${transferResult.message}`,
+                  );
+                } else {
+                  console.error(
+                    `❌ Transfer failed: ${transferResult.message}`,
+                    transferResult.error,
+                  );
+                  // Log the failure but don't block the order completion
+                  await notificationService.sendNotification(
+                    'Payment Transfer Issue',
+                    `Payment received for your product sale, but there was an issue transferring funds to your account. Please check your account onboarding status.`,
+                    order.trainerId,
+                  );
+                }
+              }
 
               if (order.trainerId && trainerUser) {
                 await notificationService.sendNotification(
@@ -594,8 +631,6 @@ const handleWebHook = catchAsync(async (req: any, res: any) => {
       console.log('✅ PaymentIntent succeeded, updated in DB');
       break;
     }
-
-    // Inside handleWebHook function, update customer.subscription.created case:
 
     case 'customer.subscription.created': {
       const subscription = event.data.object as Stripe.Subscription;
@@ -1030,6 +1065,7 @@ const handleWebHook = catchAsync(async (req: any, res: any) => {
       console.log('Capability updated event received. Handle accordingly.');
       break;
 
+      
     case 'invoice.paid': {
       const invoice = event.data.object as any;
       const invoiceId = invoice.id;
@@ -1460,6 +1496,36 @@ const handleWebHook = catchAsync(async (req: any, res: any) => {
             console.log('✅ Created payment record for product subscription');
           }
 
+          // =================================================================
+          // TRANSFER PAYMENT TO TRAINER (if trainer exists)
+          // =================================================================
+          if (productOrder.trainerId) {
+            const paymentAmount = paidInvoice.amount_paid || 0;
+            
+            console.log(
+              `💸 Initiating trainer payment transfer for recurring order ${productOrder.id}`,
+            );
+
+            const transferResult = await transferToTrainerAccount({
+              orderId: productOrder.id,
+              trainerId: productOrder.trainerId,
+              amount: paymentAmount,
+              paymentIntentId: paymentIntentId || `invoice-${invoiceId}`,
+              reason: `Recurring payment for product: ${productOrder.product?.productName}`,
+            });
+
+            if (transferResult.success) {
+              console.log(
+                `✅ Trainer transfer successful: ${transferResult.message}`,
+              );
+            } else {
+              console.error(
+                `❌ Trainer transfer failed: ${transferResult.message}`,
+                transferResult.error,
+              );
+            }
+          }
+
           // Send email notification for product subscription payment
           if (productOrder.user?.email) {
             try {
@@ -1808,6 +1874,30 @@ const cancelPaymentRequest = catchAsync(async (req: any, res: any) => {
   });
 });
 
+const checkTrainerPaymentStatus = catchAsync(async (req, res) => {
+  const trainerId = req.params.trainerId || (req.user as any)?.id;
+
+  if (!trainerId) {
+    return sendResponse(res, {
+      statusCode: httpStatus.BAD_REQUEST,
+      success: false,
+      message: 'Trainer ID is required',
+      data: null,
+    });
+  }
+
+  const paymentReadiness = await verifyTrainerPaymentReadiness(trainerId);
+
+  sendResponse(res, {
+    statusCode: paymentReadiness.ready ? httpStatus.OK : httpStatus.BAD_REQUEST,
+    success: paymentReadiness.ready,
+    message: paymentReadiness.ready
+      ? 'Trainer is ready to receive payments'
+      : paymentReadiness.reason,
+    data: paymentReadiness,
+  });
+});
+
 export const paymentController = {
   createPayment,
   createAccount,
@@ -1820,4 +1910,5 @@ export const paymentController = {
   updatePayment,
   deletePayment,
   handleWebHook,
+  checkTrainerPaymentStatus,
 };

@@ -613,7 +613,7 @@ model SubscriptionPricingRule {
   id                  String          @id @default(auto()) @map("_id") @db.ObjectId
   userId              String          @db.ObjectId
   subscriptionOfferId String          @db.ObjectId
-  name                String
+  name                String?
   type                PricingRuleType
   discountPercent     Float?
   discountAmount      Float?

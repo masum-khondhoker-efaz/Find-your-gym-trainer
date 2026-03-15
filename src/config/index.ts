@@ -48,7 +48,8 @@ export default {
   frontend_base_url: process.env.FRONTEND_BASE_URL,
   apify: {
     token: process.env.APIFY_TOKEN,
-    dataset_id: process.env.APIFY_DATASET_ID,
+    actor_id: process.env.APIFY_ACTOR_ID,
+    max_results: process.env.APIFY_MAX_RESULTS,
   },
 
 };

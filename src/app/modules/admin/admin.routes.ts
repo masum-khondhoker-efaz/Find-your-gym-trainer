@@ -42,6 +42,7 @@ router.get(
   adminController.getAllProducts,
 )
 
+
 router.patch(
   '/products/:id',
   auth(UserRoleEnum.SUPER_ADMIN, UserRoleEnum.ADMIN),
@@ -90,6 +91,19 @@ router.patch(
   adminController.updatePostStatus,
 );
 
-router.delete('/:id', auth(), adminController.deleteAdmin);
+router.get(
+  '/all-admins',
+  auth(UserRoleEnum.SUPER_ADMIN),
+  adminController.getAllAdmins,
+)
+
+router.post(
+  '/add-new-admin',
+  auth(UserRoleEnum.SUPER_ADMIN),
+  validateRequest(adminValidation.createAdminSchema),
+  adminController.createAdmin,
+);
+
+router.delete('/all-admins/:id', auth(UserRoleEnum.SUPER_ADMIN), adminController.deleteAdmin);
 
 export const adminRoutes = router;

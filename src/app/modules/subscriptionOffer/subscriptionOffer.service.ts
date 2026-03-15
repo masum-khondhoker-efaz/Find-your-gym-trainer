@@ -227,6 +227,17 @@ const getSubscriptionOfferListFromDb = async (
   };
 };
 
+const getAllSubscriptionOfferListFromDb = async () => {
+  const result = await prisma.subscriptionOffer.findMany();
+  return {
+    data: result.map(offer => ({
+      id: offer.id.toString(),
+      title: offer.title,
+      price: offer.price,
+    })),
+  };
+};
+
 const getSubscriptionOfferByIdFromDb = async (subscriptionOfferId: string) => {
   const result = await prisma.subscriptionOffer.findUnique({
     where: {
@@ -547,6 +558,7 @@ const getInitialSubscriptionOfferListFromDb = async (
 export const subscriptionOfferService = {
   createSubscriptionOfferIntoDb,
   getSubscriptionOfferListFromDb,
+  getAllSubscriptionOfferListFromDb,
   getSubscriptionOfferByIdFromDb,
   updateSubscriptionOfferIntoDb,
   deleteSubscriptionOfferItemFromDb,

@@ -7,6 +7,7 @@ import { UserRoleEnum } from '@prisma/client';
 import { multerUploadMultiple } from '../../utils/multipleFile';
 import { parseBody } from '../../middlewares/parseBody';
 import checkSubscriptionForTrainers from '../../middlewares/checkSubscriptionForSalonOwners';
+import { checkTrainerPaymentReadinessBlocking } from '../../middlewares/checkTrainerPaymentReadiness';
 
 const router = express.Router();
 
@@ -16,6 +17,7 @@ router.post(
   parseBody,
   auth(UserRoleEnum.TRAINER),
   checkSubscriptionForTrainers(),
+  checkTrainerPaymentReadinessBlocking(),
   validateRequest(productValidation.createSchema),
   productController.createProduct,
 );
