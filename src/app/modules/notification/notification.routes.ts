@@ -38,8 +38,8 @@ router.patch(
 );
 
 router.delete(
-  '/delete',
-  auth(UserRoleEnum.ADMIN),
+  '/clear-all',
+  auth(),
   NotificationController.deleteNotificationByUserIdController,
 );
 

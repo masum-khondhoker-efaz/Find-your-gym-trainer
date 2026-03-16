@@ -29,6 +29,7 @@ import { referralRoutes } from '../modules/referral/referral.routes';
 import { appliedReferralRoutes } from '../modules/appliedReferral/appliedReferral.routes';
 import { referralRewardSettingsRoutes } from '../modules/referralRewardSettings/referralRewardSettings.routes';
 import { subscriptionPricingRuleRoutes } from '../modules/subscriptionPricingRule/subscriptionPricingRule.routes';
+import subscriptionAdminOverrideRoutes from '../modules/subscriptionAdminOverride/subscriptionAdminOverride.routes';
 import { contactUsInfoRoutes } from '../modules/contactUsInfo/contactUsInfo.routes';
 import { newsletterSubscriberRoutes } from '../modules/newsletterSubscriber/newsletterSubscriber.routes';
 import { supportRoutes } from '../modules/support/support.routes';
@@ -197,6 +198,10 @@ const moduleRoutes = [
   {
     path: '/subscription-pricing-rules',
     route: subscriptionPricingRuleRoutes,
+  },
+  {
+    path: '/subscription-admin-overrides',
+    route: subscriptionAdminOverrideRoutes,
   },
 ];
 

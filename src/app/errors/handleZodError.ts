@@ -21,7 +21,7 @@ const handleZodError = (err: ZodError): TGenericErrorResponse => {
   return {
     statusCode,
     message,
-    // errorDetails,
+    errorDetails,
   };
 };
 

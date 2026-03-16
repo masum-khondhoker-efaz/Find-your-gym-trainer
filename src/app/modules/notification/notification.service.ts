@@ -202,14 +202,24 @@ const readANotificationByUserId = async (
 };
 
 const deleteNotificationByUserId = async (userId: string) => {
-  try {
-    await prisma.notification.deleteMany({
-      where: { userId },
-    });
-  } catch (error) {
-    console.error('Error deleting notifications by user ID:', error);
-    throw error;
+ // check if user has any notifications
+  const existingNotifications = await prisma.notification.findMany({
+    where: { userId },
+  });
+
+  if (existingNotifications.length === 0) {
+    throw new Error('No notifications found for the user');
   }
+
+  // delete notifications
+  const deletedNotifications = await prisma.notification.deleteMany({
+    where: { userId },
+  });
+  if (deletedNotifications.count === 0) {
+    throw new Error('Failed to delete notifications for the user');
+  }
+
+  return deletedNotifications;
 };
 
 export const notificationService = {

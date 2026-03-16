@@ -1,3 +1,4 @@
+import { stat } from 'node:fs';
 import { TrainerSpecialty } from './../../../node_modules/.prisma/client/index.d';
 export interface IPaginationOptions {
   page?: number | string;
@@ -55,6 +56,8 @@ export interface ISearchAndFilterOptions extends IPaginationOptions {
   totalReferrals?: number | string;
   totalReferralsMax?: number | string;
   totalReferralsMin?: number | string;
+  role?: string;
+  datePreset?: 'today' | 'yesterday' | 'last7days' | 'last30days';
 
   // User-related filters
   userStatus?: string;
@@ -72,6 +75,10 @@ export interface ISearchAndFilterOptions extends IPaginationOptions {
   trainerSpecialties?: string;
   serviceName?: string;
   trainerServiceTypes?: string;
+  subscriptionPlan?: 'FREE' | 'PAID' | 'ALL';
+  minViews?: number | string;
+  maxViews?: number | string;
+  certification?: string;
 
   // Category-related filters
   name?: string;
@@ -82,6 +89,8 @@ export interface ISearchAndFilterOptions extends IPaginationOptions {
   onlyTrainers?: boolean | string;
   priceRange?: 'low' | 'medium' | 'high';
   invoiceFrequency?: 'ONE_TIME' | 'WEEKLY' | 'MONTHLY' | 'ANNUALLY';
+  minRating?: number | string;
+  maxRating?: number | string;
   durationWeeks?: number | string;
   hoursPerWeek?: number | string;
   week?: number | string; // Deprecated: use durationWeeks instead, kept for backwards compatibility

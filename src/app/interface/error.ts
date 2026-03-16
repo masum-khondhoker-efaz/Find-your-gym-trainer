@@ -6,6 +6,7 @@ export type TErrorDetails = {
 };
 
 export type TGenericErrorResponse = {
+  errorDetails: Record<string, any>;
   statusCode: number;
   message: string;
   // errorDetails: TErrorDetails;

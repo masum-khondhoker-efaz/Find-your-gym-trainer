@@ -1,4 +1,3 @@
-import { Trainer } from './../../../../node_modules/.prisma/client/index.d';
 import prisma from '../../utils/prisma';
 import { UserRoleEnum, UserStatus, PaymentStatus } from '@prisma/client';
 import AppError from '../../errors/AppError';
@@ -18,6 +17,7 @@ import {
 } from '../../utils/pagination';
 import { notificationService } from '../notification/notification.service';
 import admin from '../../utils/firebase';
+import { stat } from 'fs';
 
 const getDashboardStatsFromDb = async (
   userId: string,
@@ -269,6 +269,12 @@ const getAllUsersFromDb = async (
         mode: 'insensitive' as const,
       },
     }),
+    ...(options.role && { role: options.role }),
+    ...(options.userStatus && {
+      status: {
+        equals: options.userStatus,
+      },
+    }),
   };
   const filterQuery = buildFilterQuery(filterFields);
 
@@ -279,13 +285,16 @@ const getAllUsersFromDb = async (
   //   dateField: 'createdAt',
   // });
 
+
   // Base query for BUYER role users
   const baseQuery = {
-    role: UserRoleEnum.MEMBER,
-    status: UserStatus.ACTIVE,
-    // Exclude super admins
+    // role: UserRoleEnum.MEMBER,
+    // status: UserStatus.ACTIVE,
+    // Exclude super admins and admins
     NOT: {
-      role: UserRoleEnum.SUPER_ADMIN,
+      role: {
+      in: [UserRoleEnum.SUPER_ADMIN, UserRoleEnum.ADMIN],
+      },
     },
     // status: { not: UserStatus.PENDING },
   };
@@ -314,6 +323,7 @@ const getAllUsersFromDb = async (
       id: true,
       fullName: true,
       email: true,
+      role: true,
       phoneNumber: true,
       status: true,
       bio: true,
@@ -420,11 +430,72 @@ const getAllTrainersFromDb = async (
   const filterQuery: Record<string, any> = {};
 
   if (options.isProfileComplete !== undefined) {
+    filterQuery.isProfileComplete =
+      options.isProfileComplete === 'false' || options.isProfileComplete === false
+        ? false
+        : true;
+  }
+
+  // Filter by subscription plan (free or paid)
+  if (options.subscriptionPlan && options.subscriptionPlan !== 'ALL') {
+    if (options.subscriptionPlan === 'FREE') {
+      filterQuery.isSubscribed = false;
+    } else if (options.subscriptionPlan === 'PAID') {
+      filterQuery.isSubscribed = true;
+    }
+  }
+
+  // Filter by view count (min and/or max)
+  if (options.minViews !== undefined || options.maxViews !== undefined) {
+    const viewFilter: any = {};
+    if (options.minViews !== undefined) {
+      viewFilter.gte = Number(options.minViews);
+    }
+    if (options.maxViews !== undefined) {
+      viewFilter.lte = Number(options.maxViews);
+    }
+    
+    // Use 'some' to find trainers with matching view count
     filterQuery.trainers = {
-      ...filterQuery.trainers,
-      isProfileComplete:
-        options.isProfileComplete === 'true' ||
-        options.isProfileComplete === true,
+      ...(filterQuery.trainers || {}),
+      some: {
+        ...(filterQuery.trainers?.some || {}),
+        views: viewFilter,
+      },
+    };
+  }
+
+  // Filter by specialty name
+  if (options.specialtyName) {
+    filterQuery.trainers = {
+      ...(filterQuery.trainers || {}),
+      some: {
+        ...(filterQuery.trainers?.some || {}),
+        trainerSpecialties: {
+          some: {
+            specialty: {
+              specialtyName: {
+                contains: options.specialtyName,
+                mode: 'insensitive' as const,
+              },
+            },
+          },
+        },
+      },
+    };
+  }
+
+  // Filter by certification/organization name
+  if (options.certification) {
+    filterQuery.trainers = {
+      ...(filterQuery.trainers || {}),
+      some: {
+        ...(filterQuery.trainers?.some || {}),
+        orgName: {
+          contains: options.certification,
+          mode: 'insensitive' as const,
+        },
+      },
     };
   }
 
@@ -444,14 +515,14 @@ const getAllTrainersFromDb = async (
   // Base query for TRAINER role users
   const baseQuery = {
     role: UserRoleEnum.TRAINER,
-    status: UserStatus.ACTIVE,
+    // status: UserStatus.ACTIVE,
     trainers: {
       // isNot: null, // Ensure trainer profile exists
       some: {},
     },
     // Exclude super admins
     NOT: {
-      role: UserRoleEnum.SUPER_ADMIN,
+      role: { in: [UserRoleEnum.SUPER_ADMIN, UserRoleEnum.ADMIN, UserRoleEnum.MEMBER] },
     },
   };
 
@@ -490,7 +561,11 @@ const getAllTrainersFromDb = async (
       email: true,
       phoneNumber: true,
       address: true,
+      status: true,
       isProfileComplete: true,
+      subscriptionPlan: true,
+      isSubscribed: true,
+      subscriptionEnd: true,
       createdAt: true,
       trainers: {
         select: {
@@ -499,7 +574,10 @@ const getAllTrainersFromDb = async (
           specialtyId: true,
           portfolio: true,
           certifications: true,
+          orgName: true,
+          credentialNo: true,
           experienceYears: true,
+          views: true,
           createdAt: true,
           updatedAt: true,
           trainerSpecialties: {
@@ -536,13 +614,22 @@ const getAllTrainersFromDb = async (
       email: user.email,
       phoneNumber: user.phoneNumber,
       address: user.address,
+      status: user.status,
       isProfileComplete: user.isProfileComplete,
       specialtyId: trainer.specialtyId,
       portfolio: trainer.portfolio,
       certifications: trainer.certifications,
+      orgName: trainer.orgName,
+      credentialNo: trainer.credentialNo,
       experienceYears: trainer.experienceYears,
+      viewCount: trainer.views,
       specialty: trainer.trainerSpecialties.map(ts => ts.specialty),
       serviceTypes: trainer.trainerServiceTypes.map(tst => tst.serviceType),
+      subscription: {
+        isSubscribed: user.isSubscribed,
+        plan: user.isSubscribed ? user.subscriptionPlan : 'FREE',
+        subscriptionEnd: user.subscriptionEnd,
+      },
       createdAt: trainer.createdAt,
       updatedAt: trainer.updatedAt,
     })),
@@ -557,12 +644,40 @@ const getAllPostsFromDb = async (
 ) => {
   // Calculate pagination values
   const { page, limit, skip, sortBy, sortOrder } = calculatePagination(options);
+  
   // Build search query for searchable fields
   const searchFields = ['content'];
-  const searchQuery = buildSearchQuery({
+  const baseSearchQuery = buildSearchQuery({
     searchTerm: options.searchTerm,
     searchFields,
   });
+
+  // For nested search, we need to handle user name separately
+  const searchQuery = options.searchTerm
+    ? {
+        OR: [
+          baseSearchQuery,
+          {
+            user: {
+              fullName: {
+                contains: options.searchTerm,
+                mode: 'insensitive' as const,
+              },
+            },
+          },
+        ],
+      }
+    : baseSearchQuery;
+
+  // Handle view range filter (using reachCount)
+  const viewsFilter: any = {};
+  if (options.minViews !== undefined) {
+    viewsFilter.gte = Number(options.minViews);
+  }
+  if (options.maxViews !== undefined) {
+    viewsFilter.lte = Number(options.maxViews);
+  }
+
   // Build filter query
   const filterFields: Record<string, any> = {
     ...(options.content && {
@@ -571,27 +686,77 @@ const getAllPostsFromDb = async (
         mode: 'insensitive' as const,
       },
     }),
+    ...(Object.keys(viewsFilter).length > 0 && { reachCount: viewsFilter }),
+    ...(options.role && {
+      user: {
+        role: options.role,
+      },
+    }),
   };
   const filterQuery = buildFilterQuery(filterFields);
-  // Date range filtering
-  // const dateQuery = buildDateRangeQuery({
-  //   startDate: options.startDate,
-  //   endDate: options.endDate,
-  //   dateField: 'createdAt',
-  // });
-  // Base query to fetch all posts
-  const baseQuery = {};
+
+  // Handle date preset filtering
+  let dateQuery: any = {};
+  if (options.datePreset) {
+    const now = new Date();
+    let startDate: Date;
+
+    switch (options.datePreset) {
+      case 'today':
+        startDate = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+        break;
+      case 'yesterday':
+        startDate = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1);
+        const endOfYesterday = new Date(
+          now.getFullYear(),
+          now.getMonth(),
+          now.getDate(),
+        );
+        dateQuery = {
+          createdAt: {
+            gte: startDate,
+            lt: endOfYesterday,
+          },
+        };
+        break;
+      case 'last7days':
+        startDate = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 7);
+        break;
+      case 'last30days':
+        startDate = new Date(
+          now.getFullYear(),
+          now.getMonth(),
+          now.getDate() - 30,
+        );
+        break;
+      default:
+        startDate = now;
+    }
+
+    // For non-yesterday presets, use gte (greater than or equal to start date)
+    if (options.datePreset !== 'yesterday') {
+      dateQuery = {
+        createdAt: {
+          gte: startDate,
+        },
+      };
+    }
+  }
+
   // Combine all queries
   const whereQuery = combineQueries(
-    baseQuery,
+    {},
     searchQuery,
     filterQuery,
-    // dateQuery,
+    dateQuery,
   );
+
   // Sorting
   const orderBy = getPaginationQuery(sortBy, sortOrder).orderBy;
+
   // Fetch total count for pagination
   const total = await prisma.post.count({ where: whereQuery });
+
   // Fetch paginated data
   const posts = await prisma.post.findMany({
     where: whereQuery,
@@ -603,6 +768,7 @@ const getAllPostsFromDb = async (
       content: true,
       image: true,
       impressionCount: true,
+      reachCount: true,
       likeCount: true,
       commentCount: true,
       shareCount: true,
@@ -614,11 +780,13 @@ const getAllPostsFromDb = async (
           id: true,
           fullName: true,
           email: true,
+          role: true,
           image: true,
         },
       },
     },
   });
+
   return formatPaginationResponse(posts, total, page, limit);
 };
 
@@ -642,6 +810,33 @@ const getAllProductsFromDb = async (
   });
 
   // Build filter query
+  // Handle price range filter
+  const priceFilter: any = {};
+  if (options.priceMin !== undefined) {
+    priceFilter.gte = Number(options.priceMin);
+  }
+  if (options.priceMax !== undefined) {
+    priceFilter.lte = Number(options.priceMax);
+  }
+
+  // Handle views range filter
+  const viewsFilter: any = {};
+  if (options.minViews !== undefined) {
+    viewsFilter.gte = Number(options.minViews);
+  }
+  if (options.maxViews !== undefined) {
+    viewsFilter.lte = Number(options.maxViews);
+  }
+
+  // Handle rating range filter
+  const ratingFilter: any = {};
+  if (options.minRating !== undefined) {
+    ratingFilter.gte = Number(options.minRating);
+  }
+  if (options.maxRating !== undefined) {
+    ratingFilter.lte = Number(options.maxRating);
+  }
+
   const filterFields: Record<string, any> = {
     ...(options.productName && {
       productName: {
@@ -649,13 +844,35 @@ const getAllProductsFromDb = async (
         mode: 'insensitive' as const,
       },
     }),
-    ...(options.priceMin && { price: { gte: Number(options.priceMin) } }),
-    ...(options.priceMax && { price: { lte: Number(options.priceMax) } }),
+    ...(Object.keys(priceFilter).length > 0 && { price: priceFilter }),
+    ...(Object.keys(viewsFilter).length > 0 && { views: viewsFilter }),
+    ...(Object.keys(ratingFilter).length > 0 && { avgRating: ratingFilter }),
     ...(options.isActive !== undefined && {
       isActive: options.isActive === 'true' || options.isActive === true,
     }),
   };
   const filterQuery = buildFilterQuery(filterFields);
+
+  // Filter by specialty name (creator's specialty) - integrate into filterQuery
+  const specialtyFilterQuery: Record<string, any> = {};
+  if (options.specialtyName) {
+    specialtyFilterQuery.user = {
+      trainers: {
+        some: {
+          trainerSpecialties: {
+            some: {
+              specialty: {
+                specialtyName: {
+                  contains: options.specialtyName,
+                  mode: 'insensitive' as const,
+                },
+              },
+            },
+          },
+        },
+      },
+    };
+  }
 
   // Date range filtering
   // const dateQuery = buildDateRangeQuery({
@@ -669,6 +886,7 @@ const getAllProductsFromDb = async (
     baseQuery,
     searchQuery,
     filterQuery,
+    specialtyFilterQuery,
     // dateQuery,
   );
 
@@ -710,21 +928,24 @@ const getAllProductsFromDb = async (
           fullName: true,
           image: true,
           email: true,
-          // trainers: {
-          //   select: {
-          //     userId: true,
-          //     specialtyId: true,
-          //     portfolio: true,
-          //     certifications: true,
-          //     experienceYears: true,
-          //     specialty: {
-          //       select: {
-          //         id: true,
-          //         specialtyName: true,
-          //       },
-          //     },
-          //   },
-          // },
+          trainers: {
+            select: {
+              id: true,
+              userId: true,
+              orgName: true,
+              experienceYears: true,
+              trainerSpecialties: {
+                select: {
+                  specialty: {
+                    select: {
+                      id: true,
+                      specialtyName: true,
+                    },
+                  },
+                },
+              },
+            },
+          },
         },
       },
     },
@@ -732,7 +953,7 @@ const getAllProductsFromDb = async (
 
   // Flatten the products to include trainer info at the top level
   const flattenedProducts = products.map(product => {
-    // const trainer = product.user?.trainers?.[0];
+    const trainer = product.user?.trainers?.[0];
     return {
       id: product.id,
       productName: product.productName,
@@ -750,19 +971,17 @@ const getAllProductsFromDb = async (
       productVideo: product.productVideo,
       agreementPdf: product.agreementPdf,
       isActive: product.isActive,
+      isApproved: product.isActive, // Alias for clarity
       createdAt: product.createdAt,
       updatedAt: product.updatedAt,
-      // trainer ?
       trainer: {
         trainerId: product.user.id,
         trainerName: product.user.fullName,
         trainerEmail: product.user.email,
         trainerImage: product.user.image,
-        // specialtyId: trainer.specialtyId,
-        // portfolio: trainer.portfolio,
-        // certifications: trainer.certifications,
-        // experienceYears: trainer.experienceYears,
-        // specialty: trainer.specialty,
+        organizationName: trainer?.orgName,
+        experienceYears: trainer?.experienceYears,
+        specialty: trainer?.trainerSpecialties?.map(ts => ts.specialty) || [],
       },
     };
   });
