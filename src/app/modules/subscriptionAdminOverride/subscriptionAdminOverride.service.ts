@@ -104,7 +104,7 @@ const changeTrainerSubscriptionPlanInDb = async (
         previousOfferId: currentSubscription.subscriptionOfferId!,
         newOfferId: data.newSubscriptionOfferId,
         overridePrice: data.overridePrice || newSubscriptionOffer.price,
-        note: data.note || `Changed from ${currentSubscription.subscriptionOffer.title} to ${newSubscriptionOffer.title}`,
+        note: data.note || `Changed from ${currentSubscription.subscriptionOffer!.title} to ${newSubscriptionOffer.title}`,
         approvedByAdminId: adminId,
         effectiveFrom: effectiveFrom,
         trainerNotified: false,
@@ -137,12 +137,7 @@ const changeTrainerSubscriptionPlanInDb = async (
     // 5E: Cancel in Stripe if subscription exists
     if (trainer.stripeSubscriptionId) {
       try {
-        await stripe.subscriptions.cancel(trainer.stripeSubscriptionId, {
-          metadata: {
-            cancelledBy: adminId,
-            reason: 'Admin plan change',
-          },
-        });
+        await stripe.subscriptions.cancel(trainer.stripeSubscriptionId);
       } catch (error: any) {
         console.error('Stripe cancellation error:', error.message);
         // Don't throw - continue with local cancellation

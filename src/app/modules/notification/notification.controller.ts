@@ -16,18 +16,20 @@ const sendNotificationToUser = catchAsync(async (req, res) => {
     });
   }
 
-  await notificationService.sendNotification(title, body, userId);
+  const result =  await notificationService.sendNotification(title, body, userId);
 
   sendResponse(res, {
     statusCode: httpStatus.OK,
     success: true,
     message: 'Notification sent successfully',
-    data: null,
+    data: result,
   });
 });
 
 const getAllNotificationsController = catchAsync(async (req: Request, res: Response) => {
+  const user = req.user as any;
   const notifications = await notificationService.getAllNotifications(
+    user.id,
     req.query as ISearchAndFilterOptions,
   );
   sendResponse(res, {
@@ -75,12 +77,12 @@ const readANotificationByUserIdController = catchAsync(async (req: Request, res:
 
 const deleteNotificationByUserIdController = catchAsync(async (req: Request, res: Response) => {
   const userId = req.query.userId as string;
-  await notificationService.deleteNotificationByUserId(userId);
+  const result = await notificationService.deleteNotificationByUserId(userId);
   sendResponse(res, {
     statusCode: httpStatus.OK,
     success: true,
     message: 'Notifications deleted successfully',
-    data: null,
+    data: result,
   });
 });
 

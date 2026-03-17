@@ -39,13 +39,14 @@ const sendNotification = async (
       },
     });
     console.log('Notification sent successfully');
+    return { title, body, userId };
   } catch (error) {
     console.error('Error sending notification:', error);
     throw error;
   }
 };
 
-const getAllNotifications = async (options: ISearchAndFilterOptions = {}) => {
+const getAllNotifications = async (userId: string, options: ISearchAndFilterOptions = {}) => {
   try {
     const normalizedOptions = {
       ...options,
@@ -59,6 +60,11 @@ const getAllNotifications = async (options: ISearchAndFilterOptions = {}) => {
       calculatePagination(normalizedOptions);
 
     const andConditions: Prisma.NotificationWhereInput[] = [];
+
+    // Filter by user ID
+    andConditions.push({
+      userId: userId,
+    });
 
     if (options.searchTerm) {
       andConditions.push({
