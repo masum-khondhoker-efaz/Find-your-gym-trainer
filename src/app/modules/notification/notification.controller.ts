@@ -86,6 +86,18 @@ const deleteNotificationByUserIdController = catchAsync(async (req: Request, res
   });
 });
 
+const deleteANotificationByUserIdController = catchAsync(async (req: Request, res: Response) => {
+  const userId = req.user?.id;
+  const notificationId = req.params.id;
+  const result = await notificationService.deleteANotificationByUserId(userId, notificationId);
+  sendResponse(res, {
+    statusCode: httpStatus.OK,
+    success: true,
+    message: 'Notification deleted successfully',
+    data: result,
+  });
+});
+
 const sendNotificationToUserGroup = catchAsync(async (req, res) => {
   const user = req.user as any;
   const result = await notificationService.sendNotificationToGroupIntoDb(user.id, req.body);
@@ -106,4 +118,5 @@ export const NotificationController = {
   readANotificationByUserIdController,
   sendNotificationToUserGroup,
   deleteNotificationByUserIdController,
+  deleteANotificationByUserIdController,
 };

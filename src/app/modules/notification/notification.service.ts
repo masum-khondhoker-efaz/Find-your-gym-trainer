@@ -228,6 +228,27 @@ const deleteNotificationByUserId = async (userId: string) => {
   return deletedNotifications;
 };
 
+const deleteANotificationByUserId = async (userId: string, notificationId: string) => {
+  // check if the notification exists for the user
+  const existingNotification = await prisma.notification.findFirst({
+    where: { id: notificationId, userId },
+  });
+
+  if (!existingNotification) {
+    throw new Error('Notification not found for the user');
+  }
+  
+  // delete the notification
+  const deletedNotification = await prisma.notification.delete({
+    where: { id: notificationId },
+  });
+  if (!deletedNotification) {
+    throw new Error('Failed to delete the notification for the user');
+  }
+  
+  return deletedNotification;
+}
+
 export const notificationService = {
   sendNotification,
   getAllNotifications,
@@ -235,5 +256,6 @@ export const notificationService = {
   readNotificationByUserId,
   sendNotificationToGroupIntoDb,
   deleteNotificationByUserId,
+  deleteANotificationByUserId,
   readANotificationByUserId,
 };

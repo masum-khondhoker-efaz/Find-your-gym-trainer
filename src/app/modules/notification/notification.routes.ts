@@ -43,4 +43,10 @@ router.delete(
   NotificationController.deleteNotificationByUserIdController,
 );
 
+router.delete(
+  '/clear/:id',
+  auth(),
+  NotificationController.deleteANotificationByUserIdController,
+);
+
 export const NotificationRoutes = router;
