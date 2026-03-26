@@ -99,6 +99,38 @@ const getTrainersListFromDb = async (
     };
   }
 
+  // Filter by certification/organization name
+  if (options.certification) {
+    whereClause.trainers = {
+      ...(whereClause.trainers || {}),
+      some: {
+        ...(whereClause.trainers?.some || {}),
+        orgName: {
+          contains: options.certification,
+          mode: 'insensitive' as const,
+        },
+      },
+    };
+  }
+
+  // Filter by ratings
+  // Handle rating range filter
+  if (options.minRating !== undefined || options.maxRating !== undefined) {
+    const ratingFilter: any = {};
+    if (options.minRating !== undefined) {
+      ratingFilter.gte = Number(options.minRating);
+    }
+    if (options.maxRating !== undefined) {
+      ratingFilter.lte = Number(options.maxRating);
+    }
+    whereClause.trainers = {
+      some: {
+        ...whereClause.trainers?.some,
+        avgRating: ratingFilter,
+      },
+    };
+  }
+
   // Experience years filter
   if (options?.experienceYears !== undefined) {
     whereClause.trainers = {
@@ -201,6 +233,8 @@ const getTrainersListFromDb = async (
       ratingCount: trainer?.ratingCount,
       totalReferrals: trainer?.totalReferrals,
       views: trainer?.views,
+      orgName: trainer.orgName,
+      credentialNo: trainer.credentialNo,
       specialty: trainer?.trainerSpecialties.map((ts: any) => ({
         id: ts.specialty.id,
         specialtyName: ts.specialty.specialtyName,
