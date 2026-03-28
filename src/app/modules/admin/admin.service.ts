@@ -30,6 +30,7 @@ const getDashboardStatsFromDb = async (
   // totals for users/sellers remain global (no year split requested)
   const totalUsers = await prisma.user.count({
     where: {
+      role: UserRoleEnum.MEMBER,
       status: UserStatus.ACTIVE,
     },
   });
@@ -73,23 +74,11 @@ const getDashboardStatsFromDb = async (
       ? new Date(targetUsersYear, 11, 31, 23, 59, 59, 999)
       : undefined;
 
-  // totalEarnings: constrain by earningsYear if provided, otherwise overall
-  const totalEarnings = await prisma.order.aggregate({
-    _sum: {
-      totalPrice: true,
-    },
-    ...(targetEarningsYear
-      ? {
-          where: {
-            createdAt: { gte: earningsYearStart!, lte: earningsYearEnd! },
-          },
-        }
-      : {}),
-  });
-
-  // earningGrowth: filter by earningsYear if provided; else last month
+  // earningGrowth and totalEarnings: filter by earningsYear if provided; else overall/last month
   const earningWhere: any = {
     status: PaymentStatus.COMPLETED,
+    // Find payments linked to trainer subscriptions (have stripeSubscriptionId)
+    stripeSubscriptionId: { not: null },
     ...(targetEarningsYear
       ? { createdAt: { gte: earningsYearStart, lte: earningsYearEnd } }
       : {
@@ -106,6 +95,20 @@ const getDashboardStatsFromDb = async (
     },
     where: earningWhere,
     orderBy: { createdAt: 'asc' },
+  });
+
+  // Calculate total earnings from all completed trainer subscription payments
+  const totalEarnings = await prisma.payment.aggregate({
+    _sum: {
+      paymentAmount: true,
+    },
+    where: {
+      status: PaymentStatus.COMPLETED,
+      stripeSubscriptionId: { not: null },
+      ...(targetEarningsYear
+        ? { createdAt: { gte: earningsYearStart, lte: earningsYearEnd } }
+        : {}),
+    },
   });
 
   // recentUsers: filter by usersYear if provided; else last month
@@ -219,7 +222,7 @@ const getDashboardStatsFromDb = async (
     totalUsers,
     totalTrainers,
     totalProducts,
-    totalEarnings: totalEarnings._sum.totalPrice || 0,
+    totalEarnings: totalEarnings._sum.paymentAmount || 0,
     earningGrowth: monthsEarnings.map(m => ({
       label: m.label,
       total: m.total,
@@ -381,48 +384,52 @@ const getAllTrainersFromDb = async (
   // For nested search, we need to handle it differently
   const searchQuery = options.searchTerm
     ? {
-        OR: [
-          {
-            trainers: {
-              trainerSpecialties: {
-                specialty: {
-                  specialtyName: {
+        trainers: {
+          some: {
+            OR: [
+              {
+                trainerSpecialties: {
+                  some: {
+                    specialty: {
+                      specialtyName: {
+                        contains: options.searchTerm,
+                        mode: 'insensitive' as const,
+                      },
+                    },
+                  },
+                },
+              },
+              {
+                trainerServiceTypes: {
+                  some: {
+                    serviceType: {
+                      serviceName: {
+                        contains: options.searchTerm,
+                        mode: 'insensitive' as const,
+                      },
+                    },
+                  },
+                },
+              },
+              {
+                user: {
+                  fullName: {
                     contains: options.searchTerm,
                     mode: 'insensitive' as const,
                   },
                 },
               },
-            },
-          },
-          {
-            trainers: {
-              trainerServiceTypes: {
-                serviceTypes: {
-                  serviceName: {
+              {
+                user: {
+                  email: {
                     contains: options.searchTerm,
                     mode: 'insensitive' as const,
                   },
                 },
               },
-            },
+            ],
           },
-          {
-            user: {
-              fullName: {
-                contains: options.searchTerm,
-                mode: 'insensitive' as const,
-              },
-            },
-          },
-          {
-            user: {
-              email: {
-                contains: options.searchTerm,
-                mode: 'insensitive' as const,
-              },
-            },
-          },
-        ],
+        },
       }
     : {};
 
@@ -504,9 +511,11 @@ const getAllTrainersFromDb = async (
     options.startDate || options.endDate
       ? {
           trainers: {
-            createdAt: {
-              ...(options.startDate && { gte: new Date(options.startDate) }),
-              ...(options.endDate && { lte: new Date(options.endDate) }),
+            some: {
+              createdAt: {
+                ...(options.startDate && { gte: new Date(options.startDate) }),
+                ...(options.endDate && { lte: new Date(options.endDate) }),
+              },
             },
           },
         }
@@ -515,11 +524,7 @@ const getAllTrainersFromDb = async (
   // Base query for TRAINER role users
   const baseQuery = {
     role: UserRoleEnum.TRAINER,
-    // status: UserStatus.ACTIVE,
-    trainers: {
-      // isNot: null, // Ensure trainer profile exists
-      some: {},
-    },
+    ...(options.searchTerm ? {} : { trainers: { some: {} } }), // Only require trainers exist if no search
     // Exclude super admins
     NOT: {
       role: { in: [UserRoleEnum.SUPER_ADMIN, UserRoleEnum.ADMIN, UserRoleEnum.MEMBER] },
