@@ -125,6 +125,7 @@ const getDashboardStatsFromDb = async (
     },
     select: {
       createdAt: true,
+      role: true,
     },
     orderBy: { createdAt: 'asc' as const },
   });
@@ -208,7 +209,8 @@ const getDashboardStatsFromDb = async (
       const count = recentUsers.filter(
         u =>
           u.createdAt.getFullYear() === month.year &&
-          u.createdAt.getMonth() === month.month,
+          u.createdAt.getMonth() === month.month &&
+          u.role === role,
       ).length;
       userGrowthByMonth.push({
         month: month.label,
@@ -807,12 +809,59 @@ const getAllProductsFromDb = async (
     // isActive: false,
     userId: { not: userId },
   };
-  // Build search query for searchable fields
-  const searchFields = ['productName', 'description'];
-  const searchQuery = buildSearchQuery({
-    searchTerm: options.searchTerm,
-    searchFields,
-  });
+  // Build search query for searchable fields - handle nested relations properly
+  const searchQuery = options.searchTerm
+    ? {
+        OR: [
+          {
+            productName: {
+              contains: options.searchTerm,
+              mode: 'insensitive' as const,
+            },
+          },
+          {
+            description: {
+              contains: options.searchTerm,
+              mode: 'insensitive' as const,
+            },
+          },
+          {
+            user: {
+              fullName: {
+                contains: options.searchTerm,
+                mode: 'insensitive' as const,
+              },
+            },
+          },
+          {
+            user: {
+              email: {
+                contains: options.searchTerm,
+                mode: 'insensitive' as const,
+              },
+            },
+          },
+          {
+            user: {
+              trainers: {
+                some: {
+                  trainerSpecialties: {
+                    some: {
+                      specialty: {
+                        specialtyName: {
+                          contains: options.searchTerm,
+                          mode: 'insensitive' as const,
+                        },
+                      },
+                    },
+                  },
+                },
+              },
+            },
+          },
+        ],
+      }
+    : {};
 
   // Build filter query
   // Handle price range filter

@@ -17,7 +17,10 @@ import emailSender from '../../utils/emailSender';
 import AppError from '../../errors/AppError';
 import { userSubscriptionService } from '../userSubscription/userSubscription.service';
 import { notificationService } from '../notification/notification.service';
-import { transferToTrainerAccount, verifyTrainerPaymentReadiness } from '../../utils/trainerPaymentTransfer';
+import {
+  transferToTrainerAccount,
+  verifyTrainerPaymentReadiness,
+} from '../../utils/trainerPaymentTransfer';
 
 // Initialize Stripe with your secret API key
 const stripe = new Stripe(config.stripe.stripe_secret_key as string, {
@@ -302,8 +305,10 @@ const handleWebHook = catchAsync(async (req: any, res: any) => {
               // TRANSFER PAYMENT TO TRAINER (if trainer exists)
               // =================================================================
               if (order.trainerId) {
-                const paymentAmount = session.amount_total ? session.amount_total : 0;
-                
+                const paymentAmount = session.amount_total
+                  ? session.amount_total
+                  : 0;
+
                 console.log(
                   `💸 Initiating trainer payment transfer for order ${order.id}`,
                 );
@@ -786,7 +791,7 @@ const handleWebHook = catchAsync(async (req: any, res: any) => {
                 where: { id: referralId },
                 include: {
                   user: {
-                    select: { id: true},
+                    select: { id: true },
                   },
                 },
               });
@@ -1065,7 +1070,6 @@ const handleWebHook = catchAsync(async (req: any, res: any) => {
       console.log('Capability updated event received. Handle accordingly.');
       break;
 
-      
     case 'invoice.paid': {
       const invoice = event.data.object as any;
       const invoiceId = invoice.id;
@@ -1501,7 +1505,7 @@ const handleWebHook = catchAsync(async (req: any, res: any) => {
           // =================================================================
           if (productOrder.trainerId) {
             const paymentAmount = paidInvoice.amount_paid || 0;
-            
+
             console.log(
               `💸 Initiating trainer payment transfer for recurring order ${productOrder.id}`,
             );
@@ -1819,10 +1823,181 @@ const handleWebHook = catchAsync(async (req: any, res: any) => {
       break;
     }
 
-    case 'invoice.payment_failed':
-      const failedInvoice = event.data.object as Stripe.Invoice;
-      console.log('Invoice payment failed for invoice:', failedInvoice.id);
+    case 'invoice.payment_failed': {
+      const invoice = event.data.object as any;
+      const subscriptionId = invoice.subscription as string;
+      const customerId = invoice.customer as string;
+      const invoiceId = invoice.id;
+      const attemptCount = invoice.attempt_count || 0;
+      const maxAttempts = invoice.attempt_count_max || 3;
+
+      console.log('=== Invoice Payment Failed Event ===', {
+        invoiceId,
+        subscriptionId,
+        customerId,
+        attemptCount,
+        maxAttempts,
+      });
+
+      if (!subscriptionId) {
+        console.log('❌ No subscription associated with failed invoice');
+        break;
+      }
+
+      try {
+        // Find the user
+        const user = await prisma.user.findFirst({
+          where: { stripeCustomerId: customerId },
+        });
+
+        if (!user) {
+          console.error('❌ User not found for failed payment:', customerId);
+          break;
+        }
+
+        console.log(`📋 Processing payment failure for user: ${user.id}`);
+
+        // ================================================================
+        // PART 1: Handle TRAINER PLATFORM SUBSCRIPTIONS
+        // ================================================================
+        const platformSubscriptions = await prisma.userSubscription.findMany({
+          where: { stripeSubscriptionId: subscriptionId },
+        });
+
+        if (platformSubscriptions.length > 0) {
+          console.log(
+            `📍 Found ${platformSubscriptions.length} platform subscription(s) for this subscription ID`,
+          );
+
+          // Mark trainer subscription as pending (payment retry in progress)
+          await prisma.userSubscription.updateMany({
+            where: { stripeSubscriptionId: subscriptionId },
+            data: {
+              paymentStatus: PaymentStatus.PENDING,
+            },
+          });
+
+          console.log(
+            '✅ Platform subscription(s) marked as PENDING payment status',
+          );
+
+          // For trainers: Restrict access after max retry attempts
+          if (attemptCount >= maxAttempts) {
+            await prisma.user.update({
+              where: { id: user.id },
+              data: {
+                isSubscribed: false,
+                subscriptionPlan: SubscriptionPlanStatus.FREE,
+                subscriptionEnd: new Date(),
+              },
+            });
+            console.log(
+              `⛔ Trainer ${user.id} access RESTRICTED - max retry attempts exceeded`,
+            );
+          }
+        }
+
+        // ================================================================
+        // PART 2: Handle PRODUCT SUBSCRIPTIONS (Member Orders)
+        // ================================================================
+        const productSubscriptions = await prisma.order.findMany({
+          where: { stripeSubscriptionId: subscriptionId },
+          include: {
+            product: { select: { productName: true, userId: true } },
+            user: { select: { id: true, fullName: true } },
+          },
+        });
+
+        if (productSubscriptions.length > 0) {
+          console.log(
+            `🛒 Found ${productSubscriptions.length} product order subscription(s)`,
+          );
+
+          for (const order of productSubscriptions) {
+            console.log(`  Processing order: ${order.id}`);
+
+            // For members: Update order status to reflect payment failure
+            // Use PENDING to indicate payment is pending (retry will occur)
+            // Keep state as ACTIVE since subscription is still valid during retry period
+            await prisma.order.update({
+              where: { id: order.id },
+              data: {
+                paymentStatus: PaymentStatus.PENDING,
+                subscriptionStatus: SubscriptionStatus.CANCELLED, // Mark as no longer active
+                status: OrderStatus.PENDING, // Pending payment resolution
+              },
+            });
+
+            console.log(
+              `  ✅ Order ${order.id} marked as PENDING payment - Stripe will retry`,
+            );
+
+            // Send notification to member about failed product subscription
+            try {
+              await notificationService.sendNotification(
+                order.userId,
+                'Product Subscription Payment Failed',
+                `Your subscription payment for "${order.product?.productName || 'product'}" has failed. Please update your payment method. We will retry shortly.`,
+              );
+              console.log(`  📧 Member notification sent for order: ${order.id}`);
+            } catch (notifError) {
+              console.error(
+                `  ⚠️ Failed to send member notification:`,
+                notifError,
+              );
+            }
+
+            // Send notification to trainer about failed member payment
+            if (order.trainerId) {
+              try {
+                await notificationService.sendNotification(
+                  order.trainerId,
+                  'Member Payment Failed',
+                  `Payment from ${order.user?.fullName || 'a member'} for "${order.product?.productName || 'your product'}" has failed. The member will be notified to update their payment method.`,
+                );
+                console.log(`  📧 Trainer notification sent for order: ${order.id}`);
+              } catch (notifError) {
+                console.error(
+                  `  ⚠️ Failed to send trainer notification:`,
+                  notifError,
+                );
+              }
+            }
+          }
+        }
+
+        // ================================================================
+        // PART 3: Send General User Notification
+        // ================================================================
+        if (platformSubscriptions.length > 0 || productSubscriptions.length > 0) {
+          try {
+            const subscriptionType =
+              platformSubscriptions.length > 0 ? 'trainer' : 'product';
+            const message =
+              subscriptionType === 'trainer'
+                ? 'Your trainer subscription payment failed. Please update your payment method to avoid access restrictions.'
+                : 'Your product subscription payment failed. Please update your payment method to continue your membership.';
+
+            await notificationService.sendNotification(
+              user.id,
+              'Subscription Payment Failed',
+              message,
+            );
+
+            console.log(`✅ User notification sent to: ${user.id}`);
+          } catch (notifError) {
+            console.error('⚠️ Failed to send user notification:', notifError);
+          }
+        }
+
+        console.log(
+          `✅ Invoice payment failure processed for subscription: ${subscriptionId}`,
+        );
+      } catch (error) {
+        console.error('❌ Error processing invoice.payment_failed:', error);
+      }
       break;
+    }
 
     case 'payment_method.attached':
       const paymentMethod = event.data.object as Stripe.PaymentMethod;
