@@ -171,6 +171,7 @@ model Specialties {
   userId         String   @db.ObjectId
   specialtyName  String   @unique
   specialtyImage String?
+  isActive       Boolean  @default(true)
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
 
@@ -317,6 +318,7 @@ model Gym {
   id            String   @id @default(auto()) @map("_id") @db.ObjectId
   gymName       String
   gymAddress    String
+  imageUrl      String?
   latitude      Float
   longitude     Float
   googlePlaceId String   @unique
@@ -334,6 +336,7 @@ model FavoriteGyms {
   userId        String   @db.ObjectId
   gymName       String
   gymAddress    String
+  imageUrl      String?
   latitude      Float
   longitude     Float
   googlePlaceId String   @unique
@@ -390,7 +393,6 @@ model Category {
 
   @@map("categories")
 }
-
 
 model Product {
   id     String @id @default(auto()) @map("_id") @db.ObjectId

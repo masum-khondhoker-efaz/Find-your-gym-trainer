@@ -27,29 +27,6 @@ const getDashboardStatsFromDb = async (
   const earningsYearNum = earningsYear ? parseInt(earningsYear, 10) : undefined;
   const usersYearNum = usersYear ? parseInt(usersYear, 10) : undefined;
 
-  // totals for users/sellers remain global (no year split requested)
-  const totalUsers = await prisma.user.count({
-    where: {
-      role: UserRoleEnum.MEMBER,
-      status: UserStatus.ACTIVE,
-    },
-  });
-
-  const totalTrainers = await prisma.user.count({
-    where: {
-      role: UserRoleEnum.TRAINER,
-      status: UserStatus.ACTIVE,
-      isVerified: true,
-    },
-  });
-
-  // total products
-  const totalProducts = await prisma.product.count({
-    where: {
-      isActive: true,
-    },
-  });
-
   const targetEarningsYear: number | undefined =
     typeof earningsYearNum === 'number' && !Number.isNaN(earningsYearNum)
       ? earningsYearNum
@@ -73,6 +50,46 @@ const getDashboardStatsFromDb = async (
     targetUsersYear !== undefined
       ? new Date(targetUsersYear, 11, 31, 23, 59, 59, 999)
       : undefined;
+
+  // totals for users/sellers - filter by usersYear if provided; else last month (same as userGrowthByMonth)
+  const totalUsers = await prisma.user.count({
+    where: {
+      role: UserRoleEnum.MEMBER,
+      status: UserStatus.ACTIVE,
+      isVerified: true,
+      isProfileComplete: true,
+      ...(targetUsersYear
+        ? { createdAt: { gte: usersYearStart, lte: usersYearEnd } }
+        : {
+            createdAt: {
+              gte: new Date(new Date().setMonth(new Date().getMonth() - 1)),
+            },
+          }),
+    },
+  });
+
+  const totalTrainers = await prisma.user.count({
+    where: {
+      role: UserRoleEnum.TRAINER,
+      status: UserStatus.ACTIVE,
+      isVerified: true,
+      isProfileComplete: true,
+      ...(targetUsersYear
+        ? { createdAt: { gte: usersYearStart, lte: usersYearEnd } }
+        : {
+            createdAt: {
+              gte: new Date(new Date().setMonth(new Date().getMonth() - 1)),
+            },
+          }),
+    },
+  });
+
+  // total products
+  const totalProducts = await prisma.product.count({
+    where: {
+      isActive: true,
+    },
+  });
 
   // earningGrowth and totalEarnings: filter by earningsYear if provided; else overall/last month
   const earningWhere: any = {
@@ -115,6 +132,8 @@ const getDashboardStatsFromDb = async (
   const recentUsers = await prisma.user.findMany({
     where: {
       status: UserStatus.ACTIVE,
+      // isVerified: true,
+      // isProfileComplete: true,
       ...(targetUsersYear
         ? { createdAt: { gte: usersYearStart, lte: usersYearEnd } }
         : {
@@ -126,6 +145,8 @@ const getDashboardStatsFromDb = async (
     select: {
       createdAt: true,
       role: true,
+      isVerified: true,
+      isProfileComplete: true,
     },
     orderBy: { createdAt: 'asc' as const },
   });
@@ -210,7 +231,7 @@ const getDashboardStatsFromDb = async (
         u =>
           u.createdAt.getFullYear() === month.year &&
           u.createdAt.getMonth() === month.month &&
-          u.role === role,
+          u.role === role && u.isVerified === true && u.isProfileComplete === true
       ).length;
       userGrowthByMonth.push({
         month: month.label,
@@ -274,7 +295,10 @@ const getAllUsersFromDb = async (
         mode: 'insensitive' as const,
       },
     }),
-    ...(options.role && { role: options.role }),
+    ...(options.role && { 
+      role: options.role,
+      ...(options.role === UserRoleEnum.TRAINER && { isProfileComplete: true }),
+    }),
     ...(options.userStatus && {
       status: {
         equals: options.userStatus,
@@ -296,6 +320,8 @@ const getAllUsersFromDb = async (
     // role: UserRoleEnum.MEMBER,
     // status: UserStatus.ACTIVE,
     // Exclude super admins and admins
+    isVerified: true,
+    isProfileComplete: true,
     NOT: {
       role: {
       in: [UserRoleEnum.SUPER_ADMIN, UserRoleEnum.ADMIN],
@@ -526,6 +552,8 @@ const getAllTrainersFromDb = async (
   // Base query for TRAINER role users
   const baseQuery = {
     role: UserRoleEnum.TRAINER,
+    isVerified: true,
+    isProfileComplete: true,
     ...(options.searchTerm ? {} : { trainers: { some: {} } }), // Only require trainers exist if no search
     // Exclude super admins
     NOT: {

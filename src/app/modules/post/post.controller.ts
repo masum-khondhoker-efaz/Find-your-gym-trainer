@@ -96,14 +96,11 @@ const getAllCommentsByPostId = catchAsync(async (req, res) => {
 
 const getTrainerPosts = catchAsync(async (req, res) => {
   const user = req.user as any;
-  const limit = parseInt(req.query.limit as string) || 10;
-  const offset = parseInt(req.query.offset as string) || 0;
 
   const result = await postService.getTrainerPostsFromDb(
     // user.id,
     req.params.trainerId,
-    limit,
-    offset,
+    req.query as ISearchAndFilterOptions,
   );
   sendResponse(res, {
     statusCode: httpStatus.OK,

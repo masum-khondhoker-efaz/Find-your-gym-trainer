@@ -162,6 +162,17 @@ const getTrainersListFromDb = async (
               serviceType: true,
             },
           },
+
+          gym: {
+            select: {
+              gymName: true,
+              gymAddress: true,
+              imageUrl: true,
+              latitude: true,
+              longitude: true,
+              googlePlaceId: true,
+            },
+          }
         },
       },
       socialAccounts: {
@@ -224,6 +235,7 @@ const getTrainersListFromDb = async (
       fullName: user.fullName,
       email: user.email,
       image: user.image,
+      isSubscribed: true,
       bio: user.bio,
       phoneNumber: user.phoneNumber,
       address: user.address,
@@ -235,6 +247,14 @@ const getTrainersListFromDb = async (
       views: trainer?.views,
       orgName: trainer.orgName,
       credentialNo: trainer.credentialNo,
+      gym: {
+      gymName: trainer?.gym?.gymName,
+      gymAddress: trainer?.gym?.gymAddress,
+      imageUrl: trainer?.gym?.imageUrl,
+      latitude: trainer?.gym?.latitude,
+      longitude: trainer?.gym?.longitude,
+      googlePlaceId: trainer?.gym?.googlePlaceId,
+    },
       specialty: trainer?.trainerSpecialties.map((ts: any) => ({
         id: ts.specialty.id,
         specialtyName: ts.specialty.specialtyName,
@@ -274,10 +294,9 @@ const getTrainersByIdFromDb = async (
           email: true,
           image: true,
           bio: true,
+          isSubscribed: true,
           phoneNumber: true,
           address: true,
-          latitude: true,
-          longitude: true,
           socialAccounts: {
             select: {
               platformType: true,
@@ -296,7 +315,19 @@ const getTrainersByIdFromDb = async (
           serviceType: true,
         },
       },
+      gym: {
+        select: {
+          gymName: true,
+          gymAddress: true,
+          imageUrl: true,
+          latitude: true,
+          longitude: true,
+          googlePlaceId: true,
+        },
+      
+    }
     },
+    
   });
   if (!result) {
     throw new AppError(httpStatus.NOT_FOUND, 'trainers not found');
@@ -321,10 +352,17 @@ const getTrainersByIdFromDb = async (
     email: result.user.email,
     image: result.user.image,
     bio: result.user.bio,
+    isSubscribed: true,
     phoneNumber: result.user.phoneNumber,
     address: result.user.address,
-    latitude: result.user.latitude,
-    longitude: result.user.longitude,
+    gym: {
+      gymName: result.gym?.gymName,
+      gymAddress: result.gym?.gymAddress,
+      imageUrl: result.gym?.imageUrl,
+      latitude: result.gym?.latitude,
+      longitude: result.gym?.longitude,
+      googlePlaceId: result.gym?.googlePlaceId,
+    },
     // trainerId: result.id,
     experienceYears: result.experienceYears,
     avgRating: result.avgRating,

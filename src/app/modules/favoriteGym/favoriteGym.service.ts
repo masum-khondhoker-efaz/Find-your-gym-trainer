@@ -14,6 +14,7 @@ type FavoriteGymPayload = {
   latitude: number;
   longitude: number;
   googlePlaceId: string;
+  imageUrl: string;
 };
 
 const createFavoriteGymIntoDb = async (
@@ -39,6 +40,7 @@ const createFavoriteGymIntoDb = async (
       latitude: data.latitude,
       longitude: data.longitude,
       googlePlaceId: data.googlePlaceId,
+      imageUrl: data.imageUrl,
     },
   });
 

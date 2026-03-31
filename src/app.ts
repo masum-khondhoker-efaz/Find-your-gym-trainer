@@ -36,6 +36,8 @@ app.use(
       'http://localhost:3001',
       'http://localhost:3000',
       'http://localhost:5173',
+      'http://10.10.20.25:3000',
+      'http://10.10.20.26:6080',
       'http://localhost:5174',
       'https://vitakinetic-trainer.vercel.app',
       'https://mikefiremerritt-dashboard.vercel.app',
