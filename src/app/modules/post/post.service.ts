@@ -594,9 +594,18 @@ const getAllCommentsByPostIdFromDb = async (
 const getTrainerPostsFromDb = async (
   // userId: string,
   trainerId: string,
-  limit: number = 10,
-  offset: number = 0,
+  options: ISearchAndFilterOptions,
 ) => {
+  const {
+    limit: rawLimit = 10,
+    offset: rawOffset = 0,
+    sortBy = 'createdAt',
+    sortOrder = 'desc',
+  } = options;
+
+  const limit = Number(rawLimit);
+  const offset = Number(rawOffset);
+
   const result = await prisma.post.findMany({
     where: {
       userId: trainerId,
@@ -624,7 +633,7 @@ const getTrainerPostsFromDb = async (
       },
     },
     orderBy: {
-      createdAt: 'desc', // Newest posts first
+      [sortBy]: sortOrder,
     },
     take: limit,
     skip: offset,

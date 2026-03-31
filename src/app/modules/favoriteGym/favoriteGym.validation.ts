@@ -6,6 +6,7 @@ const createSchema = z.object({
     gymAddress: z.string().min(1, 'Address is required'),
     latitude: z.number(),
     longitude: z.number(),
+    imageUrl: z.string(),
     googlePlaceId: z.string().min(1, 'Google Place ID is required'),
   }),
 });

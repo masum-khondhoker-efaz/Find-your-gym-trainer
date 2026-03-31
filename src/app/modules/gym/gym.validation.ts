@@ -7,6 +7,7 @@ const createSchema = z.object({
     googlePlaceId: z.string().min(1, 'googlePlaceId is required'),
     latitude: z.number(),
     longitude: z.number(),
+    imageUrl: z.string(),
     }),
 });
 
@@ -17,6 +18,7 @@ const updateSchema = z.object({
     googlePlaceId: z.string().optional(),
     latitude: z.number().optional(),
     longitude: z.number().optional(),
+    imageUrl: z.string().optional(),
     }),
 });
 
